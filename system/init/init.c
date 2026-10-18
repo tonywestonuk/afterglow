@@ -1,7 +1,8 @@
 /*
  * afterglow's first process (PID 1). For now it sets up a minimal environment, starts the USB serial
- * console (kernel log out, commands in), and plays the boot animation. Development builds restart
- * after afterglow.test_seconds=N (kernel command line), into afterglow.restart_to if given.
+ * console (kernel log out, commands in) with a BusyBox shell on its second port, and plays the boot
+ * animation. Development builds restart after afterglow.test_seconds=N (kernel command line), into
+ * afterglow.restart_to if given.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -13,12 +14,15 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <linux/reboot.h>
+#include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
+#include <sys/wait.h>
 
 #include "afterglow.h"
 
@@ -192,14 +196,64 @@ void restart(const char *target)
         pause();
 }
 
+struct display_job {
+    double degrees[2];   /* per-eye roll correction, counterclockwise as the viewer sees it */
+    double deadline;
+    int calibrate;
+};
+
+/* The displays run on their own thread, so init's main loop is free to look after processes */
+static void *display_thread(void *arg)
+{
+    struct display_job *job = arg;
+    if (make_fb_node() != 0) {
+        klog("no framebuffer: /sys/class/graphics/fb0/dev unreadable (%s)", strerror(errno));
+    } else if (job->calibrate) {
+        if (calibrate_run("/dev/fb0", job->degrees, job->deadline) != 0)
+            klog("calibration failed");
+    } else {
+        double roll[2] = { job->degrees[0] * M_PI / 180, job->degrees[1] * M_PI / 180 };
+        if (bootanim_play("/afterglow/boot.anim", "/dev/fb0", roll, job->deadline) != 0)
+            klog("boot animation failed");
+    }
+    return NULL;
+}
+
+/* A BusyBox shell on the development serial port, as the session leader with it as its terminal */
+static pid_t spawn_shell(const char *tty)
+{
+    static char *const argv[] = { "sh", NULL };
+    static char *const envp[] = { "PATH=/sbin:/bin:/usr/sbin:/usr/bin", "HOME=/", "TERM=vt100",
+                                  "PS1=afterglow:\\w# ", NULL };
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* Only async-signal-safe calls between fork and exec: init has other threads */
+        setsid();
+        int fd = open(tty, O_RDWR);
+        if (fd < 0)
+            _exit(127);
+        ioctl(fd, TIOCSCTTY, 0);
+        dup2(fd, 0), dup2(fd, 1), dup2(fd, 2);
+        if (fd > 2)
+            close(fd);
+        execve("/bin/sh", argv, envp);
+        _exit(127);
+    }
+    if (pid < 0)
+        klog("fork shell: %s", strerror(errno));
+    return pid;
+}
+
 int main(void)
 {
     mount("proc", "/proc", "proc", 0, NULL);
     mount("sysfs", "/sys", "sysfs", 0, NULL);
     mount("tmpfs", "/dev", "tmpfs", 0, "mode=0755");
+    mount("tmpfs", "/tmp", "tmpfs", 0, "mode=1777");
     make_node("/dev/kmsg", 1, 11);
     make_node("/dev/null", 1, 3);
     make_node("/dev/console", 5, 1);
+    make_node("/dev/tty", 5, 0);
     kmsg_fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
     klog("init started");
     if (usb_console_start() != 0)
@@ -212,26 +266,36 @@ int main(void)
 
     double factory[2];
     read_factory_roll(factory);
-    /* Per-eye correction in degrees, counterclockwise as the viewer sees it, measured with calibrate.c */
-    double degrees[2] = { cmdline_number("afterglow.roll_left_deg", 0), cmdline_number("afterglow.roll_right_deg", 0) };
+    static struct display_job job;
+    job.degrees[0] = cmdline_number("afterglow.roll_left_deg", 0);
+    job.degrees[1] = cmdline_number("afterglow.roll_right_deg", 0);
+    job.deadline = deadline;
+    job.calibrate = cmdline_number("afterglow.calibrate", 0) != 0;
+    pthread_t display;
+    if (pthread_create(&display, NULL, display_thread, &job) == 0)
+        pthread_detach(display);
 
-    if (make_fb_node() != 0) {
-        klog("no framebuffer: /sys/class/graphics/fb0/dev unreadable (%s)", strerror(errno));
-    } else if (cmdline_number("afterglow.calibrate", 0) != 0) {
-        if (calibrate_run("/dev/fb0", degrees, deadline) != 0)
-            klog("calibration failed");
-    } else {
-        double roll[2] = { degrees[0] * M_PI / 180, degrees[1] * M_PI / 180 };
-        if (bootanim_play("/afterglow/boot.anim", "/dev/fb0", roll, deadline) != 0)
-            klog("boot animation failed");
+    /* As PID 1: reap every exited process, keep the development shell running, end test builds */
+    const char *shell_tty = usb_shell_tty();
+    pid_t shell = -1;
+    double next_shell = 0;
+    for (;;) {
+        int status;
+        pid_t pid;
+        while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+            if (pid == shell) {
+                klog("shell exited (status %d)", status);
+                shell = -1;
+            }
+        }
+        if (shell_tty && shell < 0 && now() >= next_shell) {
+            shell = spawn_shell(shell_tty);
+            next_shell = now() + 1;   /* at most one restart a second */
+        }
+        if (deadline > 0 && now() >= deadline) {
+            char target[32];
+            restart(cmdline_string("afterglow.restart_to", target, sizeof(target)));
+        }
+        usleep(200 * 1000);
     }
-
-    if (deadline > 0) {
-        char target[32];
-        while (now() < deadline)
-            sleep(1);
-        restart(cmdline_string("afterglow.restart_to", target, sizeof(target)));
-    }
-    for (;;)
-        pause();
 }

@@ -50,7 +50,11 @@ Design principles:
 - [x] 3D stereo boot animation ([brand/](brand/README.md))
 - [x] Read the buttons; interactive display roll calibration
 - [x] USB serial console: live kernel log and commands ([tools/console.py](tools/console.py))
+- [x] Development shell over USB (BusyBox); hardware survey ([docs/hardware.md](docs/hardware.md))
 - [ ] Text console on the displays
+- [ ] Start the Snapdragon's subsystems and load their firmware (adsp, modem, a540_zap): the key to
+      Wi-Fi, audio and the GPU
+- [ ] Get frames from the tracking cameras (`/dev/video*` are already there)
 - [ ] Boot a minimal Linux userspace (postmarketOS-style "downstream" port on Meta's kernel)
 - [ ] USB networking (NCM is already enabled in Meta's kernel config)
 - [ ] SSH / shell over USB

@@ -1,7 +1,8 @@
 # afterglow system
 
-afterglow's own userspace. For now that's a single static program, `/init`, which runs as PID 1 on our
-kernel and plays the 3D boot animation, or the display calibration screen.
+afterglow's own userspace. For now that's a static program, `/init`, which runs as PID 1 on our kernel
+and plays the 3D boot animation (or the display calibration screen), plus BusyBox for a development
+shell over USB.
 
 | File | What |
 |---|---|
@@ -10,7 +11,7 @@ kernel and plays the 3D boot animation, or the display calibration screen.
 | `init/bootanim.c` | Plays a pre-rendered stereo animation (`tools/pack_anim.py` format), both eyes decoded and drawn in parallel |
 | `init/calibrate.c` | Interactive display roll calibration with the headset's buttons |
 | `init/input.c` | Buttons, read straight from the kernel's input devices |
-| `init/usb.c` | USB serial console: the whole kernel log out, commands in |
+| `init/usb.c` | USB serial console: the kernel log and commands on one port, a shell on the other |
 | `tests/display_test.c` | Runs the real drawing code off-device against a fake framebuffer and writes what the viewer would see |
 | `build.sh` | Builds `/init` (static aarch64, with zstd's decompressor) and the initramfs |
 
@@ -39,13 +40,18 @@ fastboot boot out/system/boot.img     # RAM only; hold power ~10 s to get back t
 
 ## USB serial console
 
-As soon as `/init` starts, the headset appears on the computer it's plugged into as a USB serial port
-(CDC-ACM; `/dev/cu.usbmodemafterglow1` on a Mac, `/dev/ttyACM*` on Linux) carrying the whole kernel
-log from the first line of the boot. Writes wait for the computer, so nothing is lost before it connects.
+As soon as `/init` starts, the headset appears on the computer it's plugged into as two USB serial
+ports (CDC-ACM; on a Mac `/dev/cu.usbmodemafterglow1` and `…3`, on Linux `/dev/ttyACM*`):
+
+1. the whole kernel log from the first line of the boot, and commands (`bootloader`, `reboot`, `help`).
+   Writes wait for the computer, so nothing is lost before it connects.
+2. a BusyBox shell (1.37.0, static, about 400 tools), which `/init` restarts if it exits.
 
 ```sh
 tools/console.py --log out/console.log            # waits for the port, prints the log live
-tools/console.py --send bootloader                 # restart into fastboot (also: reboot, help)
+tools/console.py --send bootloader                 # restart into fastboot
+tools/console.py --run 'ls /sys/class/video4linux' # run one command; prints output, returns its status
+tools/console.py --shell                           # connect to the shell port (for a full terminal: screen)
 ```
 
 It needs `CONFIG_USB_CONFIGFS_ACM`, which stock Android doesn't use; `kernel/configs/afterglow.config`

@@ -97,6 +97,25 @@ Holding Power for about 10 seconds forces a hardware restart.
 `pstore`/ramoops (1 MB at `0x9d300000`) is configured, but its contents do not survive a restart into
 the bootloader, so it can't be used to read a test boot's log afterwards.
 
+## What the kernel brings up without Android
+
+Surveyed from afterglow's shell (2026-10-18), with Meta's kernel config and no Android userspace:
+
+| Hardware | State | Notes |
+|---|---|---|
+| CPU | Up | 8 cores: 4 at 1.9 GHz, 4 at 2.3 GHz |
+| Display, buttons | Up | See above |
+| Cameras | Driver loaded | `/dev/video0–6`, `video32/33`, 14 `v4l-subdev`s (Qualcomm camera stack) |
+| GPU (Adreno 540) | Driver loaded | `kgsl-3d0`; needs firmware and the `a540_zap` subsystem |
+| Wi-Fi | Absent | No `wlan0`; needs firmware and the modem/WLAN subsystem |
+| Audio | Absent | No ALSA card; needs the `adsp` subsystem |
+| Bluetooth | Absent | Needs firmware over its serial link |
+| Motion sensor | Not visible | Only the PMIC's battery ADC is under IIO; the IMU is probably behind a microcontroller Meta's userspace drives |
+
+The Snapdragon's subsystems (`/sys/bus/msm_subsys`: `adsp`, `modem`, `venus`, `spss`, `ipa_fws`,
+`a540_zap`) are all offline: Android's init starts them and loads their firmware. Memory in use with
+afterglow's `/init`, BusyBox and the boot animation running: about 200 MB of 3.8 GB.
+
 ## Boot screens
 
 | Screen | Comes from | Changeable? |

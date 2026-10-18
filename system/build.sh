@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build afterglow's initramfs: a static aarch64 /init plus the boot animation.
+# Build afterglow's initramfs: a static aarch64 /init, the boot animation, and BusyBox.
 # Runs inside the afterglow-kernel-build container (see kernel/build/README.md).
 # Usage: system/build.sh <boot animation .anim>
 set -euo pipefail
@@ -10,7 +10,13 @@ ROOT="$OUT/initramfs"
 ZSTD=/opt/zstd/lib
 
 rm -rf "$ROOT"
-mkdir -p "$ROOT"/{dev,proc,sys,afterglow}
+mkdir -p "$ROOT"/{dev,proc,sys,tmp,afterglow,bin,sbin,usr/bin,usr/sbin}
+
+# BusyBox (built in the container image) for the development shell: one binary, a link per applet
+cp /opt/busybox/busybox "$ROOT/bin/busybox"
+while read -r applet; do
+    [ "$applet" = /bin/busybox ] || ln -sf /bin/busybox "$ROOT$applet"
+done < /opt/busybox/busybox.links
 
 # zstd's decompressor only; its assembly fast path is x86-only
 OBJS=()

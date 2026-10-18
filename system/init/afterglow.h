@@ -12,6 +12,8 @@ void restart(const char *target) __attribute__((noreturn));
 
 /* USB serial console: kernel log out, commands in (see usb.c). Returns 0 once running. */
 int usb_console_start(void);
+/* The serial port for the development shell, or NULL if there isn't one */
+const char *usb_shell_tty(void);
 
 /*
  * Play the pre-rendered stereo boot animation (packed by tools/pack_anim.py) on the framebuffer:

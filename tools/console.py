@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """afterglow's USB serial console, from a Mac or Linux PC.
 
-Waits for the headset's serial port (/dev/cu.usbmodem* on a Mac, /dev/ttyACM* on Linux), prints its
-kernel log live and optionally saves it, and sends commands (see system/init/usb.c: bootloader,
-reboot, help). Standard library only.
+The headset shows up as two serial ports (/dev/cu.usbmodem* on a Mac, /dev/ttyACM* on Linux): the
+first streams its kernel log and takes commands (see system/init/usb.c: bootloader, reboot, help),
+the second is a BusyBox shell. Standard library only.
 
-Usage: console.py [--log FILE] [--send CMD]... [--until REGEX] [--duration SECONDS] [--wait SECONDS]
+Usage: console.py [--log FILE] [--send CMD]... [--until REGEX] [--duration S] [--wait S]   kernel log
+       console.py --shell [--send CMD]...                                                   the shell
+       console.py --run 'COMMAND'          run one shell command, print its output, exit with its status
 """
 import argparse
 import glob
@@ -17,15 +19,47 @@ import time
 import tty
 
 
-def find_port(wait):
+def find_port(wait, shell):
+    """The log port is the first of afterglow's ports, the shell the second (macOS: ...1, ...3)."""
     deadline = time.time() + wait
     while True:
-        ports = glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*")
-        if ports:
-            return max(ports, key=os.path.getmtime)
+        ports = sorted(glob.glob("/dev/cu.usbmodemafterglow*") + glob.glob("/dev/ttyACM*"),
+                       key=lambda p: (len(p), p))
+        if len(ports) >= (2 if shell else 1):
+            return ports[1] if shell else ports[0]
         if time.time() > deadline:
             return None
         time.sleep(0.5)
+
+
+def run(fd, command, timeout):
+    """Run one command in the shell; print its output; return its exit status.
+
+    The command is followed by: echo "__AG""_DONE__$?". The shell's echo of that line contains the
+    split, quoted marker and a literal $?; the result is __AG_DONE__<status>. Output is what's between.
+    """
+    os.write(fd, f'\n{command}; echo "__AG""_DONE__$?"\n'.encode())
+    done = re.compile(r"__AG_DONE__(\d+)")
+    pending, started, deadline = b"", False, time.time() + timeout
+    while time.time() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.5)
+        if not ready:
+            continue
+        pending += os.read(fd, 4096)
+        *lines, pending = pending.split(b"\n")
+        for raw in lines:
+            line = raw.decode(errors="replace").rstrip("\r")
+            if not started:
+                started = '_DONE__$?"' in line   # our echoed command line; output starts after it
+                continue
+            m = done.search(line)
+            if m:
+                if line[:m.start()]:
+                    print(line[:m.start()], flush=True)   # output without a final newline
+                return int(m.group(1))
+            print(line, flush=True)
+    print(f"--- no result within {timeout:.0f} s", file=sys.stderr)
+    return 124
 
 
 def main():
@@ -35,13 +69,18 @@ def main():
     p.add_argument("--until", help="stop once a line matches this regex")
     p.add_argument("--duration", type=float, help="stop after this many seconds connected")
     p.add_argument("--wait", type=float, default=120, help="seconds to wait for the port to appear")
+    p.add_argument("--shell", action="store_true", help="use the shell port instead of the log")
+    p.add_argument("--run", help="run one shell command, print its output, exit with its status")
+    p.add_argument("--timeout", type=float, default=60, help="seconds to allow --run")
     args = p.parse_args()
 
-    port = find_port(args.wait)
+    port = find_port(args.wait, args.shell or bool(args.run))
     if not port:
-        sys.exit(f"no afterglow console appeared within {args.wait:.0f} s")
+        sys.exit(f"no afterglow {'shell' if args.shell or args.run else 'console'} appeared within {args.wait:.0f} s")
     fd = os.open(port, os.O_RDWR | os.O_NOCTTY)
     tty.setraw(fd)
+    if args.run:
+        sys.exit(run(fd, args.run, args.timeout))
     log = open(args.log, "a") if args.log else None
     print(f"--- connected to {port} at {time.strftime('%H:%M:%S')}", flush=True)
     for cmd in args.send:

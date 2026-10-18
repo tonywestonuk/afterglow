@@ -28,6 +28,7 @@ Done so far:
 - **Booted our own `/init` on it, with no Android: a pre-rendered 3D stereo boot animation**, corrected
   for the panels' 180° rotation and per-headset roll, plus button input ([system](system/README.md),
   [brand](brand/README.md)).
+- A USB serial console with the live kernel log and a shell on the headset.
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 
@@ -66,6 +67,7 @@ Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs
 ## Licence
 
 afterglow's own code is [MIT](LICENSE). Changes to the Linux kernel are GPL-2.0, like the kernel itself.
+Boot images also include BusyBox (GPL-2.0), built from its upstream release by `kernel/build/Dockerfile`.
 Meta's firmware is not ours to distribute; tools extract it from each user's own headset or from Meta's
 official update files.
 

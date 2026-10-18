@@ -1,8 +1,9 @@
 /*
- * USB serial console. Presents the headset to the computer it's plugged into as a CDC-ACM serial
- * port (a configfs gadget, like Android's adb setup; CONFIG_USB_CONFIGFS_ACM comes from
- * kernel/configs/afterglow.config) and streams the kernel log to it: /dev/cu.usbmodem* on a Mac,
- * /dev/ttyACM* on Linux. Lines typed into the port are commands; see run_command().
+ * USB serial console. Presents the headset to the computer it's plugged into as two CDC-ACM serial
+ * ports (a configfs gadget, like Android's adb setup; CONFIG_USB_CONFIGFS_ACM comes from
+ * kernel/configs/afterglow.config): /dev/cu.usbmodem* on a Mac, /dev/ttyACM* on Linux.
+ *   ttyGS0  the kernel log streams out; lines typed in are commands (see run_command())
+ *   ttyGS1  a shell (BusyBox), which init starts and restarts
  */
 #include <dirent.h>
 #include <errno.h>
@@ -21,6 +22,7 @@
 #define GADGET "/config/usb_gadget/afterglow"
 
 static int tty = -1;
+static int shell_tty_ready;
 
 static int put(const char *path, const char *value)
 {
@@ -118,6 +120,29 @@ static void *read_commands(void *arg)
     return NULL;
 }
 
+/* Create /dev/<name> for a gadget serial port from the numbers sysfs reports */
+static int make_tty_node(const char *name)
+{
+    char path[64];
+    unsigned major, minor;
+    snprintf(path, sizeof(path), "/sys/class/tty/%s/dev", name);
+    FILE *f = fopen(path, "r");
+    int ok = f && fscanf(f, "%u:%u", &major, &minor) == 2;
+    if (f)
+        fclose(f);
+    snprintf(path, sizeof(path), "/dev/%s", name);
+    if (!ok || (mknod(path, S_IFCHR | 0600, makedev(major, minor)) != 0 && errno != EEXIST)) {
+        klog("usb: no %s: %s", name, strerror(errno));
+        return -1;
+    }
+    return 0;
+}
+
+const char *usb_shell_tty(void)
+{
+    return shell_tty_ready ? "/dev/ttyGS1" : NULL;
+}
+
 /* The first (on the Quest 1, only) USB device controller, e.g. "a800000.dwc3" */
 static int find_udc(char *name, size_t size)
 {
@@ -137,15 +162,15 @@ static int find_udc(char *name, size_t size)
 
 int usb_console_start(void)
 {
-    char udc[256], dev[32];   /* udc: a sysfs directory name, up to NAME_MAX */
-    unsigned major, minor;
+    char udc[256];   /* a sysfs directory name, up to NAME_MAX */
     mkdir("/config", 0755);
     if (mount("configfs", "/config", "configfs", 0, NULL) != 0 && errno != EBUSY) {
         klog("usb: mount configfs: %s", strerror(errno));
         return -1;
     }
     const char *dirs[] = { GADGET, GADGET "/strings/0x409", GADGET "/configs/c.1",
-                           GADGET "/configs/c.1/strings/0x409", GADGET "/functions/acm.gs0" };
+                           GADGET "/configs/c.1/strings/0x409", GADGET "/functions/acm.gs0",
+                           GADGET "/functions/acm.gs1" };
     for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
         if (mkdir(dirs[i], 0755) != 0 && errno != EEXIST) {
             klog("usb: mkdir %s: %s", dirs[i], strerror(errno));
@@ -161,8 +186,9 @@ int usb_console_start(void)
         put(GADGET "/configs/c.1/strings/0x409/configuration", "console") ||
         put(GADGET "/configs/c.1/MaxPower", "500"))
         return -1;
-    if (symlink(GADGET "/functions/acm.gs0", GADGET "/configs/c.1/acm.gs0") != 0 && errno != EEXIST) {
-        klog("usb: link acm.gs0: %s", strerror(errno));
+    if ((symlink(GADGET "/functions/acm.gs0", GADGET "/configs/c.1/acm.gs0") != 0 && errno != EEXIST) ||
+        (symlink(GADGET "/functions/acm.gs1", GADGET "/configs/c.1/acm.gs1") != 0 && errno != EEXIST)) {
+        klog("usb: link functions: %s", strerror(errno));
         return -1;
     }
     if (find_udc(udc, sizeof(udc)) != 0 || put(GADGET "/UDC", udc) != 0) {
@@ -170,14 +196,9 @@ int usb_console_start(void)
         return -1;
     }
 
-    FILE *f = fopen("/sys/class/tty/ttyGS0/dev", "r");
-    int ok = f && fscanf(f, "%u:%u", &major, &minor) == 2;
-    if (f)
-        fclose(f);
-    snprintf(dev, sizeof(dev), "/dev/ttyGS0");
-    if (!ok || (mknod(dev, S_IFCHR | 0600, makedev(major, minor)) != 0 && errno != EEXIST) ||
-        (tty = open(dev, O_RDWR | O_NOCTTY | O_CLOEXEC)) < 0) {
-        klog("usb: no ttyGS0: %s", strerror(errno));
+    shell_tty_ready = make_tty_node("ttyGS1") == 0;
+    if (make_tty_node("ttyGS0") != 0 || (tty = open("/dev/ttyGS0", O_RDWR | O_NOCTTY | O_CLOEXEC)) < 0) {
+        klog("usb: can't open ttyGS0: %s", strerror(errno));
         return -1;
     }
     struct termios t;
@@ -191,6 +212,6 @@ int usb_console_start(void)
         pthread_detach(thread);
     if (pthread_create(&thread, NULL, read_commands, NULL) == 0)
         pthread_detach(thread);
-    klog("usb console on %s (ttyGS0)", udc);
+    klog("usb console on %s (log ttyGS0%s)", udc, shell_tty_ready ? ", shell ttyGS1" : "");
     return 0;
 }
