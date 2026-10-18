@@ -53,6 +53,42 @@ Linux console enabled: false
   still accepted, and therefore why the unlock exploit works.
 - `Linux console enabled` may enable a kernel debug console; not yet investigated.
 
+## Display (framebuffer)
+
+Under Meta's kernel the display is a classic Qualcomm MDSS framebuffer, `mdssfb_80000` (`/dev/graphics/fb0`
+in Android; afterglow creates `/dev/fb0` from `/sys/class/graphics/fb0/dev`, as there is no devtmpfs):
+2880×1600 at 72 Hz, 32 bpp, virtual 2880×3200 (two pages, so page-flipping with `FBIOPAN_DISPLAY`
+works), stride 11520. A static program drawing to it shows on both panels with no Android running.
+
+**The panels show the framebuffer rotated 180°**: viewer (x, y) is framebuffer (2879−x, 1599−y), so
+the left half of the framebuffer is in front of the right eye. There is no orientation property in the
+device tree; Meta's compositor compensates, and so does afterglow's boot animation player. (Confirmed
+2026-10-18: an unrotated stereo animation appeared rotated, with correct depth, which only a full
+180° rotation produces.)
+
+Lens centres as the viewer sees the screen: about (852, 865) and (2028, 865), where Meta's splash logo
+appears.
+
+**The panels are also slightly rolled.** On the development headset, measured with afterglow's
+calibration screen (2026-10-18), each eye's image needs turning **+1.0° (left) and +2.0° (right)**
+counterclockwise to look level and line up. This varies per headset. Meta's factory calibration has a
+`roll` per panel in the `private` partition (`calibration/display/<side>/<side>_screen_offset.json`;
+here left 0.010, right 0.176, alongside `decenter` in pixels and mm and the panel serial), but its
+units and sign are unconfirmed: read as radians it predicts a 10° difference between the eyes, which
+a viewer doesn't see. Each panel also has a ~7 MB `.mura` uniformity correction in the same folder.
+
+## Buttons
+
+| Device | Keys |
+|---|---|
+| `qpnp_pon` (power management chip) | Volume Down, Power |
+| `gpio-keys` | Volume Up (plus `KEY_CAMERA_FOCUS` and code 0x2fe, unidentified) |
+
+Holding Power for about 10 seconds forces a hardware restart.
+
+`pstore`/ramoops (1 MB at `0x9d300000`) is configured, but its contents do not survive a restart into
+the bootloader, so it can't be used to read a test boot's log afterwards.
+
 ## Boot screens
 
 | Screen | Comes from | Changeable? |

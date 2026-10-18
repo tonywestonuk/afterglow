@@ -16,6 +16,15 @@ if [ ! -d "$SRC/.git" ]; then
 fi
 echo "source: $(git -C "$SRC" log -1 --format='%h %cd %s' --date=short)"
 
+# afterglow's kernel changes (GPL-2.0), applied once; already-applied patches are skipped
+for patch in /work/kernel/patches/*.patch; do
+    if git -C "$SRC" apply --reverse --check "$patch" 2>/dev/null; then
+        echo "patch already applied: $(basename "$patch")"
+    else
+        git -C "$SRC" apply "$patch" && echo "applied patch: $(basename "$patch")"
+    fi
+done
+
 # Meta's published tree sources drivers/staging/oculus/internal/{Kconfig,Makefile}, which were never
 # published. Stub them so the build can proceed; options they defined are reported below.
 INTERNAL="$SRC/drivers/staging/oculus/internal"

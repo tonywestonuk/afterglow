@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 30 400 240" width="400" height="240">
+  <title>afterglow</title>
+  <defs>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD47A"/>
+      <stop offset="1" stop-color="#FF7A59"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-linecap="round">
+    <path d="M48 200 A152 152 0 0 1 352 200" stroke="#B85CFF" stroke-width="12"/>
+    <path d="M80 200 A120 120 0 0 1 320 200" stroke="#FF5C8A" stroke-width="12"/>
+    <path d="M112 200 A88 88 0 0 1 288 200" stroke="#FF9A5A" stroke-width="12"/>
+    <path d="M20 200 H380" stroke="#FFE6CC" stroke-width="6"/>
+    <path d="M150 226 H250" stroke="#FF8A5C" stroke-width="6" opacity=".55"/>
+    <path d="M176 248 H224" stroke="#FF8A5C" stroke-width="6" opacity=".3"/>
+  </g>
+  <path d="M144 200 A56 56 0 0 1 256 200 Z" fill="url(#sun)"/>
+</svg>

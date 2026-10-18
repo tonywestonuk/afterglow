@@ -30,6 +30,13 @@ RUN curl -fsSL -o /tmp/mkbootimg.b64 "https://android.googlesource.com/platform/
     && sed -i '1s|.*|#!/usr/bin/env python3|' /usr/local/bin/mkbootimg && chmod +x /usr/local/bin/mkbootimg \
     && mkbootimg --help > /dev/null
 
+# Userspace: static aarch64 binaries for afterglow's init (system/), with zstd for frame decompression
+RUN apt-get update && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL -o /tmp/zstd.tar.gz https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz \
+    && echo "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3  /tmp/zstd.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/zstd.tar.gz -C /opt && mv /opt/zstd-1.5.7 /opt/zstd && rm /tmp/zstd.tar.gz
+
 ENV PATH=/opt/aarch64-linux-android-4.9/bin:/opt/arm-linux-androideabi-4.9/bin:$PATH \
     ARCH=arm64 \
     CROSS_COMPILE=aarch64-linux-android- \

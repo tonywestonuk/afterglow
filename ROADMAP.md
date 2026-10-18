@@ -43,12 +43,18 @@ Design principles:
 - [ ] Find out whether root on stock Android can read the tracking cameras and motion sensor
 - [ ] Script the root-image build (`tools/make_root_image.sh`)
 
-## Phase 1 — Our own kernel on screen
+## Phase 1 — Our own kernel on screen (in progress)
 
+- [x] Boot our kernel with our own `/init` from RAM ([system/](system/README.md))
+- [x] Draw on both displays (MDSS framebuffer, rotated 180°, double-buffered)
+- [x] 3D stereo boot animation ([brand/](brand/README.md))
+- [x] Read the buttons; interactive display roll calibration
+- [ ] USB serial console (live logs; pstore doesn't survive restarts)
+- [ ] Text console on the displays
 - [ ] Boot a minimal Linux userspace (postmarketOS-style "downstream" port on Meta's kernel)
-- [ ] Text console on the displays (framebuffer left by the bootloader)
 - [ ] USB networking (NCM is already enabled in Meta's kernel config)
 - [ ] SSH / shell over USB
+- [ ] Read Meta's factory display calibration correctly (roll units, decentre)
 
 ## Phase 2 — The app platform
 

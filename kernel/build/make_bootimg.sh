@@ -1,11 +1,13 @@
 #!/bin/bash
-# Wrap a kernel (Image.gz-dtb) with the stock ramdisk into a boot image, copying every header field
-# (load addresses, page size, cmdline, OS version/patch level) from the stock boot.img.
+# Wrap a kernel (Image.gz-dtb) into a boot image, copying every header field (load addresses, page
+# size, cmdline, OS version/patch level) from the stock boot.img. Uses the stock ramdisk unless one
+# is given; extra kernel arguments are appended to the stock command line.
 # Runs inside the afterglow-kernel-build container.
-# Usage: make_bootimg.sh <stock boot.img> <Image.gz-dtb> <output boot image>
+# Usage: make_bootimg.sh <stock boot.img> <Image.gz-dtb> <output boot image> [ramdisk] [extra cmdline]
 set -euo pipefail
 
 STOCK="${1:?stock boot.img}"; KERNEL="${2:?Image.gz-dtb}"; OUTPUT="${3:?output image}"
+RAMDISK="${4:-}"; EXTRA_CMDLINE="${5:-}"
 WORK=$(mktemp -d)
 
 # Boot image header v0: magic, then kernel/ramdisk/second sizes and load addresses, tags address,
@@ -26,6 +28,9 @@ print(f"OS_VERSION={(v>>14)&0x7f}.{(v>>7)&0x7f}.{v&0x7f} OS_PATCH={(lvl>>4)+2000
 print("CMDLINE='" + cmdline.replace("'", "'\\''") + "'")
 EOF
 )"
+
+[ -n "$RAMDISK" ] && cp "$RAMDISK" "$WORK/ramdisk"
+[ -n "$EXTRA_CMDLINE" ] && CMDLINE="$CMDLINE $EXTRA_CMDLINE"
 
 # With --base 0 each offset is the absolute load address
 mkbootimg --header_version 0 --pagesize "$PAGESIZE" --base 0 \

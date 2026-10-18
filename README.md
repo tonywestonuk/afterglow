@@ -25,6 +25,9 @@ Done so far:
 - Identified the retail hardware (board `vs1 pvt b`, Samsung panels) and the matching files in
   [Meta's published kernel source](https://github.com/facebookincubator/oculus-linux-kernel/tree/oculus-quest-kernel-master).
 - **Built that kernel from source and booted stock Android on it** ([kernel/build](kernel/build/README.md)).
+- **Booted our own `/init` on it, with no Android: a pre-rendered 3D stereo boot animation**, corrected
+  for the panels' 180° rotation and per-headset roll, plus button input ([system](system/README.md),
+  [brand](brand/README.md)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 
@@ -54,6 +57,10 @@ Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs
 | `tools/root-overlay/` | Magisk `overlay.d` files that pre-approve root for the adb shell (Quest can't show Magisk's prompt) |
 | `kernel/configs/` | The exact config of Meta's running Quest 1 kernel (from `/proc/config.gz`) |
 | `kernel/build/` | Reproducible kernel build (Docker, Meta's GCC 4.9) and boot-image packaging |
+| `kernel/patches/` | afterglow's kernel changes (GPL-2.0) |
+| `system/` | afterglow's `/init`: boot animation, display, buttons, calibration |
+| `brand/` | Logo, the 3D boot animation scene (Blender Python), fonts |
+| `tools/pack_anim.py`, `tools/make_calibration_frames.py` | Pack rendered frames for the headset; calibration test patterns |
 | `docs/` | Hardware notes and procedures |
 
 ## Licence

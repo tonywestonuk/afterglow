@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>afterglow boot animation</title>
+<style>
+  :root { --bg: #000; --fg: #f5e6da; --dim: #8a7f78; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif;
+         display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 32px 16px; }
+  h2 { font-weight: 400; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 0; }
+  #hero { width: min(520px, 100%); }
+  .headset { width: min(960px, 100%); aspect-ratio: 2880 / 1600; position: relative; background: #000;
+             outline: 1px solid #222; }
+  .headset::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px dashed #222; }
+  .eye { position: absolute; width: calc(400 / 2880 * 100%); transform: translate(-50%, -50%); top: calc(734 / 1600 * 100%); }
+  .eye.left { left: calc(851 / 2880 * 100%); }
+  .eye.right { left: calc(2027 / 2880 * 100%); }
+  button { background: #1a1410; color: var(--fg); border: 1px solid #3a2c22; border-radius: 6px; padding: 8px 18px;
+           font: inherit; cursor: pointer; }
+  button:hover { border-color: #ff9a5a; }
+  p { color: var(--dim); max-width: 640px; text-align: center; margin: 0; }
+
+  /* Intro, then a slow glow that pulses outward through the arcs */
+  .horizon { transform-box: fill-box; transform-origin: center; animation: grow .7s cubic-bezier(.2,.7,.2,1) both; }
+  .sun { animation: rise 1s cubic-bezier(.2,.7,.2,1) .3s both; }
+  .arc path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .7s cubic-bezier(.3,.6,.2,1) both; }
+  .a1 path { animation-delay: .9s; }  .a2 path { animation-delay: 1.1s; }  .a3 path { animation-delay: 1.3s; }
+  .arc { animation: glow 2.4s ease-in-out infinite; }
+  .a1 { animation-delay: 2.2s; }  .a2 { animation-delay: 2.5s; }  .a3 { animation-delay: 2.8s; }
+  .reflection { animation: fade .8s ease 1.8s both, shimmer 3s ease-in-out 2.6s infinite; }
+  .word { animation: word 1s ease 2s both; }
+  @keyframes grow { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+  @keyframes rise { from { transform: translateY(60px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes glow { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes shimmer { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  @keyframes word { from { opacity: 0; letter-spacing: .3em; } to { opacity: 1; letter-spacing: .12em; } }
+</style>
+</head>
+<body>
+  <h2>afterglow</h2>
+  <div id="hero">
+    <svg id="logo" viewBox="0 20 400 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="afterglow logo">
+      <defs>
+        <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#FFD47A"/><stop offset="1" stop-color="#FF7A59"/>
+        </linearGradient>
+        <clipPath id="above"><rect x="0" y="0" width="400" height="200"/></clipPath>
+      </defs>
+      <g fill="none" stroke-linecap="round" stroke-width="12">
+        <!-- each arc is two halves drawn from the horizon up to the top -->
+        <g class="arc a3" stroke="#B85CFF">
+          <path pathLength="1" d="M48 200 A152 152 0 0 1 200 48"/><path pathLength="1" d="M352 200 A152 152 0 0 0 200 48"/>
+        </g>
+        <g class="arc a2" stroke="#FF5C8A">
+          <path pathLength="1" d="M80 200 A120 120 0 0 1 200 80"/><path pathLength="1" d="M320 200 A120 120 0 0 0 200 80"/>
+        </g>
+        <g class="arc a1" stroke="#FF9A5A">
+          <path pathLength="1" d="M112 200 A88 88 0 0 1 200 112"/><path pathLength="1" d="M288 200 A88 88 0 0 0 200 112"/>
+        </g>
+      </g>
+      <g clip-path="url(#above)"><path class="sun" d="M144 200 A56 56 0 0 1 256 200 Z" fill="url(#sun)"/></g>
+      <g fill="none" stroke-linecap="round" stroke-width="6">
+        <path class="horizon" d="M20 200 H380" stroke="#FFE6CC"/>
+        <g class="reflection" stroke="#FF8A5C">
+          <path d="M150 226 H250" opacity=".55"/><path d="M176 248 H224" opacity=".3"/>
+        </g>
+      </g>
+      <text class="word" x="200" y="318" text-anchor="middle" fill="#F5E6DA"
+            font-family="Avenir Next, Avenir, Futura, system-ui, sans-serif" font-weight="300" font-size="40">afterglow</text>
+    </svg>
+  </div>
+  <button id="replay">Replay</button>
+  <h2>In the headset: one per eye, at the lens centres</h2>
+  <div class="headset" id="headset"></div>
+  <p>Positions match Meta's own splash logo on the Quest 1's 2880×1600 panels (centres at 851,734 and 2027,734),
+     so it sits in the middle of each lens.</p>
+<script>
+  const logo = document.getElementById("logo");
+  const headset = document.getElementById("headset");
+  function render() {
+    headset.replaceChildren();
+    for (const side of ["left", "right"]) {
+      const eye = document.createElement("div");
+      eye.className = "eye " + side;
+      eye.append(logo.cloneNode(true));
+      headset.append(eye);
+    }
+  }
+  document.getElementById("replay").addEventListener("click", () => location.reload());
+  render();
+  // preview.html?t=3000 freezes the animation 3 s in (for stills and checking)
+  const t = new URLSearchParams(location.search).get("t");
+  if (t !== null) {
+    for (const a of document.getAnimations()) { a.pause(); a.currentTime = Number(t); }
+  }
+</script>
+</body>
+</html>

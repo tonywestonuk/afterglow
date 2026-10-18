@@ -1,0 +1,33 @@
+diff --git a/init/initramfs.c b/init/initramfs.c
+index 52059169..e53999f0 100644
+--- a/init/initramfs.c
++++ b/init/initramfs.c
+@@ -617,11 +617,27 @@ static int __init skip_initramfs_param(char *str)
+ }
+ __setup("skip_initramfs", skip_initramfs_param);
+ 
++/*
++ * afterglow: the Quest bootloader always passes skip_initramfs (legacy system-as-root), which
++ * makes the kernel ignore the boot image ramdisk. afterglow_initramfs overrides it, so a boot
++ * image that asks for it runs its own /init while stock boot images behave as before.
++ */
++static int __initdata force_initramfs;
++
++static int __init afterglow_initramfs_param(char *str)
++{
++	if (*str)
++		return 0;
++	force_initramfs = 1;
++	return 1;
++}
++__setup("afterglow_initramfs", afterglow_initramfs_param);
++
+ static int __init populate_rootfs(void)
+ {
+ 	char *err;
+ 
+-	if (do_skip_initramfs) {
++	if (do_skip_initramfs && !force_initramfs) {
+ 		if (initrd_start)
+ 			free_initrd();
+ 		return default_rootfs();
