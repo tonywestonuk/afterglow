@@ -1,8 +1,7 @@
 /*
- * afterglow's first process (PID 1). For now it sets up a minimal environment and plays the
- * boot animation. Development builds stop after afterglow.test_seconds=N (kernel command line)
- * and restart (see restart()); because the restart is warm, this boot's kernel log survives in
- * pstore and can be read from /sys/fs/pstore on the next boot.
+ * afterglow's first process (PID 1). For now it sets up a minimal environment, starts the USB serial
+ * console (kernel log out, commands in), and plays the boot animation. Development builds restart
+ * after afterglow.test_seconds=N (kernel command line), into afterglow.restart_to if given.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -31,10 +30,11 @@ void klog(const char *fmt, ...)
     int n = snprintf(buf, sizeof(buf), "<6>afterglow: ");
     va_list ap;
     va_start(ap, fmt);
-    n += vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
+    n += vsnprintf(buf + n, sizeof(buf) - n - 1, fmt, ap);
     va_end(ap);
-    if (n >= (int)sizeof(buf))
-        n = sizeof(buf) - 1;
+    if (n >= (int)sizeof(buf) - 1)
+        n = sizeof(buf) - 2;
+    buf[n++] = '\n';   /* without it the kernel joins consecutive messages into one record */
     if (kmsg_fd >= 0 && write(kmsg_fd, buf, n) < 0)
         return;   /* nowhere else to report it */
 }
@@ -181,18 +181,12 @@ static const char *cmdline_string(const char *key, char *out, size_t out_len)
     return NULL;
 }
 
-/*
- * Restart, optionally into a bootloader mode (afterglow.restart_to=bootloader for the fastboot
- * menu, which lets a developer boot a rooted image and read this boot's log from pstore).
- */
-static void restart(void)
+void restart(const char *target)
 {
-    char target[32];
-    const char *to = cmdline_string("afterglow.restart_to", target, sizeof(target));
-    klog("restarting%s%s", to ? " to " : "", to ? to : "");
+    klog("restarting%s%s", target ? " to " : "", target ? target : "");
     sync();
-    if (to)
-        syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART2, to);
+    if (target)
+        syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART2, target);
     reboot(RB_AUTOBOOT);
     for (;;)
         pause();
@@ -208,6 +202,8 @@ int main(void)
     make_node("/dev/console", 5, 1);
     kmsg_fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
     klog("init started");
+    if (usb_console_start() != 0)
+        klog("no USB console");
 
     double seconds = cmdline_number("afterglow.test_seconds", 0);
     double deadline = seconds > 0 ? now() + seconds : 0;
@@ -231,9 +227,10 @@ int main(void)
     }
 
     if (deadline > 0) {
+        char target[32];
         while (now() < deadline)
             sleep(1);
-        restart();
+        restart(cmdline_string("afterglow.restart_to", target, sizeof(target)));
     }
     for (;;)
         pause();

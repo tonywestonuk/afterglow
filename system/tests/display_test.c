@@ -70,15 +70,9 @@ int main(int argc, char **argv)
         if (!h)
             return 1;
         const struct entry *index = (const struct entry *)(h + 1);
-        for (unsigned f = 0; f <= (unsigned)atoi(argv[3]); f++) {
-            for (int i = 0; i < 2; i++) {
-                eyes[i].entry = &index[f * 2 + i];
-                eyes[i].page = fb.mem;
-                eye_frame(&eyes[i]);
-                if (eyes[i].failed)
-                    return 1;
-            }
-        }
+        for (unsigned f = 0; f <= (unsigned)atoi(argv[3]); f++)
+            if (eye_frame_pair(eyes, &index[f * 2], fb.mem) != 0)
+                return 1;
         write_view(&fb, argv[6]);
         return 0;
     }

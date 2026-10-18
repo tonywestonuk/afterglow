@@ -41,5 +41,7 @@ struct view {
 int view_map(struct view *v, double angle, int xres, int yres);
 /* Draw `rgb` (the view's image) into a framebuffer page, compensating for the panels' 180° rotation */
 void view_draw(const struct view *v, const struct fb *fb, uint8_t *page, const uint8_t *rgb);
+/* The same for rows [row0, row1) of the view's screen rectangle, so bands can be drawn in parallel */
+void view_draw_rows(const struct view *v, const struct fb *fb, uint8_t *page, const uint8_t *rgb, int row0, int row1);
 
 #endif

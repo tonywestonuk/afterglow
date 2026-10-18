@@ -49,7 +49,7 @@ Design principles:
 - [x] Draw on both displays (MDSS framebuffer, rotated 180°, double-buffered)
 - [x] 3D stereo boot animation ([brand/](brand/README.md))
 - [x] Read the buttons; interactive display roll calibration
-- [ ] USB serial console (live logs; pstore doesn't survive restarts)
+- [x] USB serial console: live kernel log and commands ([tools/console.py](tools/console.py))
 - [ ] Text console on the displays
 - [ ] Boot a minimal Linux userspace (postmarketOS-style "downstream" port on Meta's kernel)
 - [ ] USB networking (NCM is already enabled in Meta's kernel config)

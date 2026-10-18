@@ -10,6 +10,7 @@ kernel and plays the 3D boot animation, or the display calibration screen.
 | `init/bootanim.c` | Plays a pre-rendered stereo animation (`tools/pack_anim.py` format), both eyes decoded and drawn in parallel |
 | `init/calibrate.c` | Interactive display roll calibration with the headset's buttons |
 | `init/input.c` | Buttons, read straight from the kernel's input devices |
+| `init/usb.c` | USB serial console: the whole kernel log out, commands in |
 | `tests/display_test.c` | Runs the real drawing code off-device against a fake framebuffer and writes what the viewer would see |
 | `build.sh` | Builds `/init` (static aarch64, with zstd's decompressor) and the initramfs |
 
@@ -36,5 +37,18 @@ docker run --rm -v "$PWD":/work afterglow-kernel-build /work/kernel/build/make_b
 fastboot boot out/system/boot.img     # RAM only; hold power ~10 s to get back to Android
 ```
 
-There is no log channel yet: pstore doesn't survive a restart into the bootloader, and USB isn't set
-up. A USB serial console is the next step.
+## USB serial console
+
+As soon as `/init` starts, the headset appears on the computer it's plugged into as a USB serial port
+(CDC-ACM; `/dev/cu.usbmodemafterglow1` on a Mac, `/dev/ttyACM*` on Linux) carrying the whole kernel
+log from the first line of the boot. Writes wait for the computer, so nothing is lost before it connects.
+
+```sh
+tools/console.py --log out/console.log            # waits for the port, prints the log live
+tools/console.py --send bootloader                 # restart into fastboot (also: reboot, help)
+```
+
+It needs `CONFIG_USB_CONFIGFS_ACM`, which stock Android doesn't use; `kernel/configs/afterglow.config`
+adds it. Measured with it (2026-10-18): `/init` starts 2.4 s after the kernel, the port appears about
+9 s after `fastboot boot`, and the boot animation decodes and draws a stereo frame in about 21 ms with
+no late frames.

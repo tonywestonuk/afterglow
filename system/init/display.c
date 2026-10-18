@@ -117,17 +117,28 @@ int view_map(struct view *v, double angle, int xres, int yres)
 
 void view_draw(const struct view *v, const struct fb *fb, uint8_t *page, const uint8_t *rgb)
 {
+    view_draw_rows(v, fb, page, rgb, 0, v->dh);
+}
+
+void view_draw_rows(const struct view *v, const struct fb *fb, uint8_t *page, const uint8_t *rgb, int row0, int row1)
+{
     const struct fb_var_screeninfo *var = &fb->var;
     size_t stride = (size_t)v->width * 3;
-    for (int y = 0; y < v->dh; y++) {
+    uint32_t black = var->transp.length ? 0xffu << var->transp.offset : 0;
+    for (int y = row0 < 0 ? 0 : row0; y < row1 && y < v->dh; y++) {
         uint32_t *row = (uint32_t *)(page + (size_t)(var->yres - 1 - (v->dy + y)) * fb->fix.line_length);
         uint32_t *d = row + (var->xres - 1 - v->dx);
         const int32_t *src = v->src + (size_t)y * v->dw;
         const uint8_t *fx = v->fx + (size_t)y * v->dw, *fy = v->fy + (size_t)y * v->dw;
         for (int x = 0; x < v->dw; x++) {
-            uint32_t pixel = 0;
+            uint32_t pixel = black;
             if (src[x] >= 0) {
                 const uint8_t *p = rgb + (size_t)src[x] * 3, *q = p + stride;
+                /* Most of an eye's area is black: skip the blend when all four samples are */
+                if ((p[0] | p[1] | p[2] | p[3] | p[4] | p[5] | q[0] | q[1] | q[2] | q[3] | q[4] | q[5]) == 0) {
+                    d[-x] = black;
+                    continue;
+                }
                 unsigned a = fx[x], b = fy[x], c[3];
                 for (int ch = 0; ch < 3; ch++) {
                     unsigned top = p[ch] * (256 - a) + p[3 + ch] * a;

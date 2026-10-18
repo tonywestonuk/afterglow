@@ -11,8 +11,9 @@
  *           pixels; any other frame holds the bytewise difference (mod 256) from that eye's
  *           previous frame. Frames 0 and loop_start are keyframes, so the loop can restart there.
  *
- * Each eye's image is turned about its lens centre to cancel that panel's roll; the two eyes are
- * decoded and drawn on separate threads.
+ * Each eye's image is turned about its lens centre to cancel that panel's roll. The two eyes are
+ * decoded on separate threads, then drawn in bands across more cores, so a frame takes less than
+ * one 72 Hz refresh (13.9 ms) and the page flip that waits for it still lands on schedule.
  */
 #include <errno.h>
 #include <fcntl.h>
@@ -53,8 +54,16 @@ struct eye {
     int failed;
 };
 
-/* Thread body: decode this eye's next frame and draw it into the back page */
-static void *eye_frame(void *arg)
+/* Rows of the screen drawn by one thread: each eye is split into BANDS horizontal bands */
+#define BANDS 3
+
+struct band {
+    struct eye *eye;
+    int row0, row1;
+};
+
+/* Thread body: decode this eye's next frame (each frame builds on the last, so one thread per eye) */
+static void *eye_decode(void *arg)
 {
     struct eye *e = arg;
     size_t frame_bytes = (size_t)e->view.width * e->view.height * 3;
@@ -72,8 +81,49 @@ static void *eye_frame(void *arg)
     if (!key)
         for (size_t i = 0; i < frame_bytes; i++)
             e->rgb[i] += e->delta[i];
-    view_draw(&e->view, e->fb, e->page, e->rgb);
     return NULL;
+}
+
+/* Thread body: draw one band of an eye into the back page */
+static void *draw_band(void *arg)
+{
+    struct band *b = arg;
+    view_draw_rows(&b->eye->view, b->eye->fb, b->eye->page, b->eye->rgb, b->row0, b->row1);
+    return NULL;
+}
+
+/* Run fn on each of n argument structs (size bytes apart) in parallel, and wait for all */
+static void run_parallel(void *(*fn)(void *), void *args, size_t size, int n)
+{
+    pthread_t threads[2 * BANDS];
+    int started[2 * BANDS];
+    for (int i = 0; i < n; i++) {
+        void *arg = (char *)args + i * size;
+        started[i] = pthread_create(&threads[i], NULL, fn, arg) == 0;
+        if (!started[i])
+            fn(arg);   /* run inline if a thread can't be started */
+    }
+    for (int i = 0; i < n; i++)
+        if (started[i])
+            pthread_join(threads[i], NULL);
+}
+
+/* Decode both eyes' next frames, then draw them into a page in bands */
+static int eye_frame_pair(struct eye eyes[2], const struct entry *entries, uint8_t *page)
+{
+    for (int i = 0; i < 2; i++)
+        eyes[i].entry = &entries[i], eyes[i].page = page;
+    run_parallel(eye_decode, eyes, sizeof(*eyes), 2);
+    if (eyes[0].failed || eyes[1].failed)
+        return -1;
+    struct band bands[2 * BANDS];
+    for (int i = 0; i < 2 * BANDS; i++) {
+        struct eye *e = &eyes[i / BANDS];
+        int b = i % BANDS;
+        bands[i] = (struct band){ e, e->view.dh * b / BANDS, e->view.dh * (b + 1) / BANDS };
+    }
+    run_parallel(draw_band, bands, sizeof(*bands), 2 * BANDS);
+    return 0;
 }
 
 static uint8_t *read_file(const char *path, size_t *size)
@@ -157,23 +207,9 @@ int bootanim_play(const char *anim_path, const char *fb_path, const double roll[
             break;
 
         /* Both eyes in parallel, into the hidden page */
-        pthread_t threads[2];
-        int started[2];
-        uint8_t *page = fb_back(&fb);
-        for (int i = 0; i < 2; i++) {
-            eyes[i].entry = &index[f * 2 + i];
-            eyes[i].page = page;
-            started[i] = pthread_create(&threads[i], NULL, eye_frame, &eyes[i]) == 0;
-            if (!started[i])
-                eye_frame(&eyes[i]);   /* run inline if a thread can't be started */
-        }
-        for (int i = 0; i < 2; i++) {
-            if (started[i])
-                pthread_join(threads[i], NULL);
-            if (eyes[i].failed) {
-                klog("frame %u eye %d: couldn't decode", f, i);
-                return -1;
-            }
+        if (eye_frame_pair(eyes, &index[f * 2], fb_back(&fb)) != 0) {
+            klog("frame %u: couldn't decode", f);
+            return -1;
         }
         work += now() - t0;
         fb_flip(&fb);

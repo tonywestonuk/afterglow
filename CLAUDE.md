@@ -27,6 +27,9 @@ never put a device serial number in the repo.
   Factory Reset.
 - The headset suspends when not worn. Long transfers need a wake lock
   (`echo name > /sys/power/wake_lock` as root) and `adb pull`, not long `adb exec-out` streams.
+- When afterglow's own `/init` is running, use the USB serial console for logs and control:
+  `tools/console.py --log out/console.log` (live kernel log), `--send bootloader` to end a test.
+  Test boot images carry `afterglow.test_seconds=N afterglow.restart_to=bootloader` as a safety net.
 - Magisk's root prompt can't display on a Quest with a custom launcher. Use the root overlay in
   `tools/root-overlay/` ([procedure](docs/rooting-and-backup.md)).
 - macOS has no `timeout`, and Bash is 3.2: keep scripts portable.

@@ -36,8 +36,13 @@ if [ ! -e "$INTERNAL" ] || grep -q "Stub: not published" "$INTERNAL/Kconfig"; th
 fi
 
 mkdir -p "$SRC/out" "$OUT"
-cp "$CONFIG" "$SRC/out/.config"
+cat "$CONFIG" /work/kernel/configs/afterglow.config > "$SRC/out/.config"
 make -C "$SRC" O=out olddefconfig
+
+# Every option afterglow adds must have survived olddefconfig (a missing dependency drops it silently)
+for option in $(grep -E '^CONFIG_' /work/kernel/configs/afterglow.config); do
+    grep -qx "$option" "$SRC/out/.config" || { echo "afterglow.config: $option did not take effect" >&2; exit 1; }
+done
 
 # Options enabled in the running stock kernel that this source tree can't provide
 comm -23 <(grep -E '^CONFIG_[A-Z0-9_]+=[ym]' "$CONFIG" | sort) \

@@ -7,6 +7,12 @@ void klog(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /* Seconds on CLOCK_MONOTONIC. */
 double now(void);
 
+/* Restart: to Android (target NULL), or into a bootloader mode such as "bootloader" (fastboot). */
+void restart(const char *target) __attribute__((noreturn));
+
+/* USB serial console: kernel log out, commands in (see usb.c). Returns 0 once running. */
+int usb_console_start(void);
+
 /*
  * Play the pre-rendered stereo boot animation (packed by tools/pack_anim.py) on the framebuffer:
  * the intro once, then the loop, until the deadline (now() seconds; 0 = forever). Each eye's image

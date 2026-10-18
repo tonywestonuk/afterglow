@@ -77,6 +77,14 @@ here left 0.010, right 0.176, alongside `decenter` in pixels and mm and the pane
 units and sign are unconfirmed: read as radians it predicts a 10° difference between the eyes, which
 a viewer doesn't see. Each panel also has a ~7 MB `.mura` uniformity correction in the same folder.
 
+Pixel format: 32 bpp with red in bits 0–7, green 8–15, blue 16–23 (RGBA byte order).
+
+## USB
+
+One USB device controller, `a800000.dwc3` (Synopsys DWC3). Android configures it through configfs
+(`androidboot.configfs=true`); afterglow does the same for its serial console. The stock kernel has
+NCM, MTP, FunctionFS (adb) and Qualcomm functions but no ACM serial; afterglow's kernel adds it.
+
 ## Buttons
 
 | Device | Keys |
