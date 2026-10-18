@@ -1,0 +1,10 @@
+# Injected by Magisk's overlay.d: pre-approve root for the adb shell (uid 2000),
+# because Quest can't show Magisk's on-screen prompt without Meta's home shell.
+service afterglow_grant_shell /system/bin/sh ${MAGISKTMP}/afterglow_grant_shell.sh
+    user root
+    seclabel u:r:magisk:s0
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start afterglow_grant_shell

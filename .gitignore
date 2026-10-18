@@ -1,0 +1,13 @@
+# Partition backups and firmware: Meta's copyrighted, device-specific images. Never commit.
+backups/
+firmware/
+*.img
+*.bin
+*.zip
+
+# Third-party tools downloaded locally (Google platform-tools, Magisk)
+tools/platform-tools-dl/
+tools/magisk-*/
+*.apk
+
+.DS_Store
