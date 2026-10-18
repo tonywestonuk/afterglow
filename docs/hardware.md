@@ -53,6 +53,14 @@ Linux console enabled: false
   still accepted, and therefore why the unlock exploit works.
 - `Linux console enabled` may enable a kernel debug console; not yet investigated.
 
+## Boot screens
+
+| Screen | Comes from | Changeable? |
+|---|---|---|
+| Unlocked-bootloader warning ("BOOT WILL RESUME SHORTLY. PRESS POWER KEY TO RESUME NOW.") | Text compiled into Meta's signed bootloader (`abl`, in an LZMA-compressed UEFI volume) | No: `abl` is signature-checked by the chip. Pressing power skips the wait |
+| Still Oculus "O" logo | Two 8-bit BMPs in the `splash` partition behind a `DDPH` header: 1920×1600 at `0x4000`, 2880×1600 at `0xA00000` | Probably, by writing `splash` with a same-format image. Untested: unknown whether `abl` validates it |
+| Animated Meta logo | Android's `bootanim` service running Meta's `/system/bin/vr_bootanimation` | Only by modifying `/system`. Under afterglow it doesn't exist |
+
 ## Slots
 
 The headset has A/B slots. After an unlock with the web unlocker (and probably QuestStack):
