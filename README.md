@@ -24,6 +24,7 @@ Done so far:
 - Temporary root on stock Android without flashing, and a full, checksum-verified partition backup.
 - Identified the retail hardware (board `vs1 pvt b`, Samsung panels) and the matching files in
   [Meta's published kernel source](https://github.com/facebookincubator/oculus-linux-kernel/tree/oculus-quest-kernel-master).
+- **Built that kernel from source and booted stock Android on it** ([kernel/build](kernel/build/README.md)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 
@@ -52,6 +53,7 @@ Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs
 | `tools/backup_partitions.sh` | Back up all partitions (except `userdata`) to your computer, sha256-verified |
 | `tools/root-overlay/` | Magisk `overlay.d` files that pre-approve root for the adb shell (Quest can't show Magisk's prompt) |
 | `kernel/configs/` | The exact config of Meta's running Quest 1 kernel (from `/proc/config.gz`) |
+| `kernel/build/` | Reproducible kernel build (Docker, Meta's GCC 4.9) and boot-image packaging |
 | `docs/` | Hardware notes and procedures |
 
 ## Licence

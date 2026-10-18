@@ -11,3 +11,6 @@ tools/magisk-*/
 *.apk
 
 .DS_Store
+
+# Build output
+out/

@@ -39,6 +39,9 @@ never put a device serial number in the repo.
 - Board: `arch/arm64/boot/dts/oculus/vs1-pvt-b-sdc.dts`; panel: `dsi-panel-sdc-lightman-video.dtsi`.
 - Exact running config: `kernel/configs/vs1-pvt-b-sdc_4.4.205-perf_running.config`. Meta built with GCC 4.9.
 - Boot image: header v0, page size 4096, gzip kernel + 14 appended DTBs, legacy system-as-root.
+- Build and package with `kernel/build/` ([README](kernel/build/README.md)); it handles the gaps in Meta's
+  published tree (unpublished `internal/` driver dir, verity certificate, DTC version, 32-bit compiler).
+  Verified: rebuilt kernel boots stock Android via `fastboot boot`, all 14 DTBs byte-identical to stock.
 
 ## Conventions
 

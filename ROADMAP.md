@@ -39,7 +39,7 @@ Design principles:
 - [x] Full checksum-verified partition backup
 - [x] Identify board and panel (`vs1 pvt b (SDC)`) and matching kernel source files
 - [x] Capture the running kernel's exact config
-- [ ] Build Meta's Quest 1 kernel from source and boot it with `fastboot boot`
+- [x] Build Meta's Quest 1 kernel from source and boot it with `fastboot boot` ([how](kernel/build/README.md))
 - [ ] Find out whether root on stock Android can read the tracking cameras and motion sensor
 - [ ] Script the root-image build (`tools/make_root_image.sh`)
 
