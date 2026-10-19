@@ -171,6 +171,17 @@ static int32_t x_object_set_blend(wasm_exec_env_t env, int32_t object, int32_t m
     return noted(world_object_set_blend(current->id, object, mode));
 }
 
+static int32_t x_head_pose(wasm_exec_env_t env, uint32_t position, uint32_t orientation)
+{
+    float *p = array(env, position, 3 * sizeof(float)), *q = array(env, orientation, 4 * sizeof(float));
+    float r[9];
+    if (!p || !q)
+        return -1;
+    int tracked = head_pose(0, r, p);
+    head_quaternion(0, q);
+    return tracked;
+}
+
 static int32_t x_set_background(wasm_exec_env_t env, float r, float g, float b)
 {
     (void)env;
@@ -217,6 +228,7 @@ int ext_init(void)
         { "texture_size", (void *)x_texture_size, "(iii)i", NULL },
         { "object_set_texture", (void *)x_object_set_texture, "(iii)i", NULL },
         { "object_set_blend", (void *)x_object_set_blend, "(ii)i", NULL },
+        { "head_pose", (void *)x_head_pose, "(ii)i", NULL },
         { "set_background", (void *)x_set_background, "(fff)i", NULL },
         { "world_seconds", (void *)x_world_seconds, "()F", NULL },
         { "log_message", (void *)x_log_message, "($)", NULL },

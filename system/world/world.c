@@ -9,6 +9,7 @@
  *                     placeholder gets a road-works sign beside it until the real thing replaces it
  *   unload NAME
  *   list
+ *   recentre          make the way the wearer faces now "ahead" (-z)
  *   quit
  * While it runs it owns the display: /run/afterglow/display-owner holds its pid, and /init's status
  * screen keeps off the screen.
@@ -46,14 +47,19 @@
 /* Optics, in screen pixels as the wearer sees them (docs/hardware.md). No lens distortion correction yet. */
 static const float lens_x[2] = { 852, 2028 }, lens_y = 865;
 #define FOCAL_PX 720.0f   /* pixels per unit of tan(angle) at the lens centre: about 90° across an eye */
-#define EYE_HEIGHT 1.6f
 #define IPD 0.063f
+/* How far ahead to predict the head: a frame is drawn from the pose at its start and reaches the panels
+ * as the next frame is shown (the copy lags one behind), then scans out: about two frames and a bit */
+#define PREDICT_FRAMES 2.0
+#define PREDICT_EXTRA 0.008
+#define PREDICT_MAX 0.1
 #define FRAME_RATE 72
 
 static FILE *kmsg;
 static double started;
 static volatile sig_atomic_t running = 1;
 static float roll[2];   /* each panel's roll correction, radians, counterclockwise as the wearer sees it */
+static float head_rotation[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, head_centre[3] = { 0, EYE_HEIGHT, 0 };   /* this frame's */
 
 static double now(void)
 {
@@ -749,7 +755,7 @@ static void mat_mul(float out[16], const float a[16], const float b[16])
 
 /*
  * One eye's view: a frustum centred on its lens (so straight ahead is where the lens is), turned by
- * that panel's roll correction, from the eye's position.
+ * that panel's roll correction, from the eye's position, which turns with the head.
  */
 static void eye_view(int eye, float view_projection[16], float position[3])
 {
@@ -759,11 +765,15 @@ static void eye_view(int eye, float view_projection[16], float position[3])
     float b = -cy / FOCAL_PX * n, t = (H - cy) / FOCAL_PX * n;
     float projection[16] = { 2 * n / (r - l), 0, 0, 0, 0, 2 * n / (t - b), 0, 0,
                              (r + l) / (r - l), (t + b) / (t - b), -(f + n) / (f - n), -1, 0, 0, -2 * f * n / (f - n), 0 };
-    position[0] = (eye ? 1 : -1) * IPD / 2, position[1] = EYE_HEIGHT, position[2] = 0;
+    const float *h = head_rotation;   /* columns: the head's right, up and back, in the world */
+    for (int k = 0; k < 3; k++)
+        position[k] = head_centre[k] + (eye ? 1 : -1) * IPD / 2 * h[k];
     float c = cosf(roll[eye]), s = sinf(roll[eye]);
     float turn[16] = { c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    float unturn_head[16] = { h[0], h[3], h[6], 0, h[1], h[4], h[7], 0, h[2], h[5], h[8], 0, 0, 0, 0, 1 };
     float move[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -position[0], -position[1], -position[2], 1 };
     mat_mul(view_projection, projection, turn);
+    mat_mul(view_projection, view_projection, unturn_head);
     mat_mul(view_projection, view_projection, move);
 }
 
@@ -985,11 +995,15 @@ static void control_poll(int listener)
         ext_unload(name, reply, sizeof(reply));
     else if (strcmp(verb, "list") == 0)
         ext_list(reply, sizeof(reply));
+    else if (strcmp(verb, "recentre") == 0) {
+        head_recentre();
+        snprintf(reply, sizeof(reply), "the way the wearer faces is now ahead\n");
+    }
     else if (strcmp(verb, "quit") == 0) {
         running = 0;
         snprintf(reply, sizeof(reply), "stopping\n");
     } else
-        snprintf(reply, sizeof(reply), "error: commands are load NAME PATH [placeholder], unload NAME, list, quit\n");
+        snprintf(reply, sizeof(reply), "error: commands are load NAME PATH [placeholder], unload NAME, list, recentre, quit\n");
     for (size_t off = 0, total = strlen(reply); off < total;) {
         ssize_t n = write(c, reply + off, total - off);
         if (n <= 0)
@@ -1047,6 +1061,8 @@ int main(void)
     anisotropy = fminf(anisotropy, 8);
     if (paint_init(FONT_PATH) != 0)
         wlog("no font at %s: no text or signs", FONT_PATH);
+    if (head_start() != 0)
+        wlog("head tracking didn't start");
     int control = control_open();
     if (control < 0)
         return 1;
@@ -1060,12 +1076,14 @@ int main(void)
     wlog("running: %dx%d, lens-centred, roll %.1f° / %.1f°", W, H, roll[0] * 180 / M_PI, roll[1] * 180 / M_PI);
 
     unsigned frame = 0, frames = 0;
-    double last = world_time(), report = last, busy = 0, copying = 0;
+    double last = world_time(), report = last, busy = 0, copying = 0, interval = 1.0 / FRAME_RATE;
     while (running) {
         double t = world_time();
         control_poll(control);
         ext_frame((float)(t - last));
+        interval += (fmin(t - last, 0.2) - interval) * 0.1;
         last = t;
+        head_pose(fmin(PREDICT_FRAMES * interval + PREDICT_EXTRA, PREDICT_MAX), head_rotation, head_centre);
         glClearColor(background[0], background[1], background[2], 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         for (int eye = 0; eye < 2; eye++)

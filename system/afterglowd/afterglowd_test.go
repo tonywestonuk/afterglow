@@ -106,7 +106,7 @@ func TestHandshake(t *testing.T) {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
 	if got := strings.Join(names, " "); got != "run read_file write_file list_dir status logs screenshot "+
-		"load_extension unload_extension list_extensions start_world stop_world generate_texture fetch_texture" {
+		"load_extension unload_extension list_extensions start_world recentre stop_world generate_texture fetch_texture" {
 		t.Errorf("tools: %s", got)
 	}
 	_, resp = post(t, s, `{"jsonrpc":"2.0","id":4,"method":"no/such"}`, nil)

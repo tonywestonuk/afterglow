@@ -59,7 +59,7 @@ How:
 |---|---|
 | **Getting frames onto the panels** | The probe copies a finished frame to the framebuffer with `glReadPixels`: 32 ms, far too slow for 72 Hz (13.9 ms per frame). The GPU needs to render straight into buffers the display shows (the display driver's overlay with ION buffers, or the framebuffer's own memory imported as an EGLImage) |
 | **Lens centring and distortion** | Each eye's projection must be centred on its lens (852,865 and 2028,865 on screen), and the image pre-warped for the lens; the roll correction (already per pixel on the CPU) moves into the same GPU pass |
-| **Head tracking** | The motion sensor is behind Meta's SyncBoss microcontroller; Meta's kernel has its driver, the data format needs working out. Without it the floor turns with your head |
+| **Head tracking: position** | Turning is tracked (below); moving about needs the cameras (6DoF, open SLAM) |
 | **Voice** | The microphones (the audio DSP already runs) and speech-to-text, on the Mac at first |
 | **GPU clock** | The GPU stays at its lowest clock (257 MHz; `msm-adreno-tz` sees it idle while the CPU copies frames), so filling the screen costs: a full-screen textured floor takes the world from 48 to 36 fps. Raise its floor while the world runs (kgsl's `min_pwrlevel`), with an eye on temperature |
 | **Instancing** | Many copies of one mesh (grass blades, puffs of smoke, crowds) in one draw, each with its own transform and colour |
@@ -76,6 +76,20 @@ How:
   `chroot`; 0.5 s per extension. Claude sends C source, never binaries, so any MCP client can do it.
 - **afterglowd tools**: `load_extension`, `unload_extension`, `list_extensions`, `start_world`,
   `stop_world`; every version kept on storage.
+
+## Head tracking, turning only (2026-10-19)
+
+The world's `head.c` reads the IMU through SyncBoss ([docs/hardware.md](hardware.md#the-imu-syncboss)), a
+thousand samples a second, and fuses them: the gyroscope turns the head, gravity keeps it level
+(a complementary filter, as Mahony's), and the gyroscope's offset is learnt whenever the head is still.
+A neck model swings the eyes about a point 7.5 cm below and 8 cm behind them. Each frame predicts the
+head to when it will be seen, about two frames ahead, as the copy to the panels lags one behind. The
+heading is recentred when the world starts and by afterglowd's `recentre`; extensions read the pose
+with `head_pose()`.
+
+Not yet: Meta's factory calibration of the IMU, the magnetometer to stop the heading drifting, and
+lower latency (frames straight to the panels, a higher GPU clock: the village scene runs at 23 fps,
+which shows as lag when turning).
 
 ## Something on screen in seconds (2026-10-19)
 

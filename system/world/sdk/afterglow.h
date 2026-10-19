@@ -13,8 +13,9 @@
  * building blocks: vectors, transforms, meshes from boxes, spheres, cylinders and the like, whole
  * objects in one line, text labels. Most extensions want it: #include "shapes.h".
  *
- * Space: metres, y up, the floor is the plane y = 0 (20 m across, centred on the origin). The wearer's
- * eyes are at (-0.0315, 1.6, 0) and (+0.0315, 1.6, 0), looking along -z. No head tracking yet.
+ * Space: metres, y up, the floor is the plane y = 0 (20 m across, centred on the origin). The wearer
+ * stands at the origin, eyes 1.6 m up, first facing -z. The head's turning is tracked (not yet
+ * walking about): head_pose() says where it is.
  * Each eye sees about 90 degrees across, centred on its lens; things nearer than 0.05 m or farther
  * than 500 m are clipped. The background starts as (0.02, 0.02, 0.04).
  *
@@ -88,6 +89,11 @@ AG_IMPORT(object_set_texture) int object_set_texture(int object, int slot, int t
  * BLEND_ADD adds light (glows, sparks, halos). Blended objects don't hide what's behind them */
 enum { BLEND_SOLID = 0, BLEND_ALPHA = 1, BLEND_ADD = 2 };
 AG_IMPORT(object_set_blend) int object_set_blend(int object, int mode);
+
+/* Where the wearer's head is: position (metres, the point between the eyes) and orientation, a
+ * quaternion (x, y, z, w) turning the head's axes (x right, y up, -z ahead) into the world's. Only
+ * turning is tracked (the IMU), with a neck model; returns 1 when tracking, 0 when not */
+AG_IMPORT(head_pose) int head_pose(float position[3], float orientation[4]);
 
 /* The colour behind everything */
 AG_IMPORT(set_background) int set_background(float r, float g, float b);

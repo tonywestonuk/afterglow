@@ -8,6 +8,7 @@ through afterglowd's tools; the extension API is [`sdk/afterglow.h`](sdk/aftergl
 |---|---|
 | `world.c` | Render loop, scene (meshes, shaders, textures, objects, with who changed what), the standard shader, blending, stereo views centred on the lenses and turned by each panel's roll, frames to the panels, control socket |
 | `ext.c` | Extensions in WAMR's fast interpreter: the API as WebAssembly imports, an instruction budget per call, unloading and restoring on failure |
+| `head.c` | Head tracking, turning only: the IMU through SyncBoss, fused into the head's orientation, a neck model, prediction |
 | `sign.c` | The road-works sign put beside a placeholder |
 | `paint.c` | Pictures on the CPU: images from files (stb_image), text (stb_truetype, from distance fields so the light font can be made bolder), the sign's face |
 | `gles.c` | Qualcomm's OpenGL ES driver, loaded by name (no Android properties) |
@@ -58,7 +59,8 @@ python3 tools/push_file.py out/world/toolchain.tar.gz --extract /storage/toolcha
   It's how Claude shows something within seconds while it writes something that takes minutes.
 - **Textures** are kept in `/storage/world/textures` (`$AFTERGLOW_WORLD_DIR/textures`) as PNG or JPEG;
   `texture_load("name")` reads them. afterglowd's `generate_texture` and `fetch_texture` put them there.
-- The control socket is `/run/afterglow/world.sock`: `load NAME PATH [placeholder]`, `unload NAME`, `list`, `quit`.
+- The control socket is `/run/afterglow/world.sock`: `load NAME PATH [placeholder]`, `unload NAME`, `list`,
+  `recentre`, `quit`.
   While the world runs it owns the display (`/run/afterglow/display-owner`); `/init`'s status screen
   returns when it stops.
 

@@ -127,11 +127,40 @@ Surveyed from afterglow's shell (2026-10-18), with Meta's kernel config and no A
 | Wi-Fi | Absent | No `wlan0`; needs firmware and the modem/WLAN subsystem (see below: now working) |
 | Audio | Absent | No ALSA card; needs the `adsp` subsystem (see below: now started) |
 | Bluetooth | Absent | Needs firmware over its serial link |
-| Motion sensor | Not visible | Only the PMIC's battery ADC is under IIO; the IMU is probably behind a microcontroller Meta's userspace drives |
+| Motion sensor | Behind SyncBoss | The IMU is on SyncBoss, an nRF52 on SPI with Meta's kernel driver: see [below](#the-imu-syncboss) (now working) |
 
 The Snapdragon's subsystems (`/sys/bus/msm_subsys`: `adsp`, `modem`, `venus`, `spss`, `ipa_fws`,
 `a540_zap`) are all offline: Android's init starts them and loads their firmware. Memory in use with
 afterglow's `/init`, BusyBox and the boot animation running: about 200 MB of 3.8 GB.
+
+## The IMU (SyncBoss)
+
+Found 2026-10-19. The accelerometer and gyroscope (and magnetometer, proximity sensor and controller
+radio) sit behind SyncBoss, an nRF52 microcontroller on SPI 12 (`spi12.0`, driver `oculus_syncboss`,
+source `drivers/staging/oculus/mcu/syncboss` in Meta's kernel). Its firmware is already on the chip;
+the driver holds it in reset until a client opens it. Meta's library `libsyncboss.so` (on the system
+partition) shows how its own software drives it; afterglow's `syncboss` tool and the world's
+`head.c` do the same:
+
+1. Stream settings in `/sys/devices/virtual/misc/syncboss0/spi/control/`: `transaction_period_us`
+   1000, `transaction_length` 248, `minimum_time_between_transactions_us` 30.
+2. Open `/dev/syncboss0` (it's released from reset and streaming starts: 60 ms) and
+   `/dev/syncboss_stream0`.
+3. Commands are written to `/dev/syncboss0` as `type, sequence, length, data`, the sequence number read
+   from `next_avail_seq_num`; replies come on `/dev/syncboss_control0`. IMU on is type 110 (no data;
+   reply type 125, status 0), off is type 111.
+4. Each read of the stream gives one packet: the driver's 3-byte header (`version, header length,
+   from driver`), then `type, sequence (0), length, data`.
+
+| Stream type | Rate | Contents |
+|---|---|---|
+| 80 | 1000/s | IMU sample, 36 bytes: `u64` time (µs, the MCU's clock), `float` acceleration x, y, z (g), `float` rotation x, y, z (degrees/s), `float` temperature (°C, about 38-40) |
+| 224 | 30/s | 14 bytes, not yet identified |
+
+The accelerometer reads to 0.0005 g (±16 g range, noise 0.002 g); the gyroscope to 0.061 °/s (±2000 °/s),
+with an offset at rest of about (1.0, 1.25, -0.06) °/s on this headset, which must be learnt. Its axes,
+measured by wearing the headset and turning (2026-10-19): the head's right, up and back are the
+sensor's -y, -x and -z. Meta's factory calibration (in `/persist`) isn't used yet.
 
 ## Subsystems and Wi-Fi without Android
 

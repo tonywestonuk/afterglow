@@ -64,6 +64,15 @@ uint8_t *paint_sign(int *width, int *height, uint8_t **mask);
 uint8_t *paint_load(const char *path, int *width, int *height);
 const char *paint_load_error(void);
 
+/* Head tracking, turning only (head.c). Eyes are EYE_HEIGHT above the floor when the head is upright */
+#define EYE_HEIGHT 1.6f
+int head_start(void);
+void head_recentre(void);
+/* The head `ahead` seconds from now: rotation (head to world, column-major 3x3), the point between the
+ * eyes; 1 if tracked */
+int head_pose(double ahead, float rotation[9], float centre[3]);
+void head_quaternion(double ahead, float xyzw[4]);
+
 /* Extensions (ext.c). Results go in reply, one or more lines. */
 int ext_init(void);
 /* A placeholder gets a road-works sign beside what it makes (sign.c) */

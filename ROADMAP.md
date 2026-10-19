@@ -86,7 +86,8 @@ grass extension is compiled and linked in without the world stopping.
       lathes; text labels), a lit standard shader, blending, textures (from pixels, files, text)
 - [x] Textures from an image generator on the network (`generate_texture`, AUTOMATIC1111 web API) or
       the web (`fetch_texture`); made seamless when asked
-- [ ] Input in the world API: buttons now, controllers and head pose later
+- [x] Head pose in the world API (`head_pose()`), tracked by the IMU
+- [ ] Input in the world API: buttons now, controllers later
 - [ ] Instancing (many copies of a mesh in one draw), and a raised GPU clock while the world runs
 - [ ] Ahead-of-time compiled extensions (`wamrc`) for heavy per-frame code
 - [ ] Voice: "make the floor grass" said in the headset
@@ -108,7 +109,7 @@ grass extension is compiled and linked in without the world stopping.
 
 ## Phase 5+ — Toward feature parity
 
-- [ ] 3DoF head tracking from the motion sensor
+- [x] 3DoF head tracking from the motion sensor (the IMU behind SyncBoss; [docs/apps.md](docs/apps.md))
 - [ ] An open GPU driver (Mesa freedreno, with mainline Linux); Qualcomm's runs today
 - [ ] Bluetooth (Wi-Fi: done in Phase 1)
 - [ ] Controllers (the Rift S shares them; see Monado's Rift S driver)

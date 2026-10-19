@@ -39,6 +39,7 @@ Wi-Fi networks, so after a restart nothing is needed: it reconnects and Claude C
 | `load_extension` | Compile C source for the 3D world on the headset and load it while the world runs; `edits` change the newest version instead of resending it; `placeholder` adds a road-works sign; or go back to an earlier `version` ([system/world](../world/README.md)) |
 | `unload_extension`, `list_extensions` | Remove one (everything it did is undone); what's loaded, what failed and why, versions kept |
 | `start_world`, `stop_world` | The world on the displays, or back to the status screen |
+| `recentre` | Make the way the wearer faces "ahead" again (head tracking is turning only, so the heading drifts) |
 | `generate_texture` | Has an image generator on the network paint a texture from a description (AUTOMATIC1111 web API, Draw Things' included; the address is remembered), keeps it for `texture_load`, returns a preview. Returns within 40 s with "still generating" if it's slow; calling again waits on the same job |
 | `fetch_texture` | The same from an image URL (e.g. CC0 textures from Poly Haven or ambientCG) |
 

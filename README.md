@@ -41,6 +41,8 @@ Done so far:
 - **3D on the GPU, and a world Claude extends while it runs**: Qualcomm's OpenGL ES 3.2 driver on the
   Adreno 540; C extensions compiled to WebAssembly on the headset and swapped into the running world in
   under a second, with crashes contained and every change undoable ([docs/apps.md](docs/apps.md)).
+- **Head tracking (turning)**, from the IMU behind Meta's SyncBoss microcontroller, read directly
+  with no Android ([how](docs/hardware.md#the-imu-syncboss)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 

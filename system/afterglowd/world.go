@@ -89,6 +89,13 @@ func worldTools() []tool {
 			call:        startWorld,
 		},
 		{
+			Name: "recentre",
+			Description: "Make the way the wearer faces now the world's ahead (-z). Head tracking is turning only (the IMU), " +
+				"so the heading drifts slowly; it's recentred whenever the world starts.",
+			InputSchema: schema(nil, map[string]any{}),
+			call:        recentreWorld,
+		},
+		{
 			Name:        "stop_world",
 			Description: "Stop the 3D world and go back to the headset's status screen. Its extensions are loaded again next time.",
 			InputSchema: schema(nil, map[string]any{}),
@@ -366,6 +373,19 @@ func startWorld(args json.RawMessage) ([]any, error) {
 		note = "the world was already running"
 	}
 	return []any{text(note)}, nil
+}
+
+func recentreWorld(args json.RawMessage) ([]any, error) {
+	if err := decode(args, &struct{}{}); err != nil {
+		return nil, err
+	}
+	worldMu.Lock()
+	defer worldMu.Unlock()
+	reply, err := worldCommand("recentre", 5*time.Second)
+	if err != nil {
+		return nil, errors.New("the world isn't running")
+	}
+	return []any{text(reply)}, nil
 }
 
 func stopWorld(args json.RawMessage) ([]any, error) {

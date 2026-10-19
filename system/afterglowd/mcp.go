@@ -39,7 +39,8 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
 - 3D: a world runs on the GPU (a wireframe floor to start with) and grows by extensions: C compiled to
   WebAssembly on the headset and loaded while it runs (load_extension). Read /afterglow/sdk/afterglow.h
   and /afterglow/sdk/shapes.h first: they're the whole API, with ready-made shapes, a lit standard
-  shader, textures and text. Check results with screenshot.
+  shader, textures and text. Check results with screenshot (it shows where the wearer is looking:
+  the head's turning is tracked).
 - Show something within seconds. When what's asked for will take you more than a minute to write,
   first load a placeholder under the same name (placeholder: true): 10-20 lines of shape() calls
   roughly where the real thing will be, as big and in its main colours. The world stands a road-works
