@@ -10,7 +10,9 @@ OUT=/work/out/system
 ROOT="$OUT/initramfs"
 ZSTD=/opt/zstd/lib
 THIRD=/work/out/third_party
+AFTERGLOWD=/work/out/afterglowd/afterglowd
 [ -x "$THIRD/bin/busybox" ] || { echo "no $THIRD: build system/third_party first (see system/README.md)" >&2; exit 1; }
+[ -x "$AFTERGLOWD" ] || { echo "no $AFTERGLOWD: build it first (see system/README.md)" >&2; exit 1; }
 
 rm -rf "$ROOT"
 mkdir -p "$ROOT"/{dev,proc,sys,tmp,afterglow,bin,sbin,usr/bin,usr/sbin,usr/share}
@@ -47,6 +49,7 @@ cp "$OUT/init" "$ROOT/init"
 cp "$ANIM" "$ROOT/afterglow/boot.anim"
 install -m 0755 /work/system/scripts/*.sh "$ROOT/afterglow/"
 install -m 0755 "$OUT"/tools/* "$ROOT/bin/"
+install -m 0755 "$AFTERGLOWD" "$ROOT/bin/"
 
 # Uncompressed cpio: the animation is already zstd-compressed
 (cd "$ROOT" && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --quiet) > "$OUT/initramfs.cpio"

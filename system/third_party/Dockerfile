@@ -1,10 +1,11 @@
-# Third-party userspace for afterglow, built from upstream source as static aarch64 binaries.
+# Third-party userspace for afterglow, built from upstream source as static aarch64 binaries, and
+# the Go toolchain that builds afterglowd (system/afterglowd/build.sh).
 # Native arm64 (no Rosetta), on Alpine: musl, and static builds of the libraries they link.
 #   docker build --platform linux/arm64 -t afterglow-userland system/third_party
 #   docker run --rm -v "$PWD":/work afterglow-userland      # copies the results to out/third_party/
 FROM --platform=linux/arm64 alpine:3.22
 
-RUN apk add --no-cache build-base linux-headers pkgconf curl \
+RUN apk add --no-cache build-base linux-headers pkgconf curl go \
         libnl3-dev libnl3-static openssl-dev openssl-libs-static
 
 # BusyBox 1.37.0 (GPL-2.0) for the shell and its tools: the upstream release as mirrored by Debian

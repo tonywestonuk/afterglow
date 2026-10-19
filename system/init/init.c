@@ -16,9 +16,11 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <linux/reboot.h>
+#include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
@@ -131,6 +133,19 @@ static void read_factory_roll(double roll[2])
     }
     umount("/mnt/private");
     klog("factory display roll (unapplied): left %.4f, right %.4f", roll[0], roll[1]);
+}
+
+/* The loopback interface (127.0.0.1, which the kernel adds when it comes up): local services need it */
+static void loopback_up(void)
+{
+    struct ifreq ifr = { .ifr_name = "lo" };
+    int s = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (s < 0 || ioctl(s, SIOCGIFFLAGS, &ifr) != 0)
+        klog("loopback: %s", strerror(errno));
+    else if (ifr.ifr_flags |= IFF_UP, ioctl(s, SIOCSIFFLAGS, &ifr) != 0)
+        klog("loopback up: %s", strerror(errno));
+    if (s >= 0)
+        close(s);
 }
 
 /* Meta's kernel has no devtmpfs, so create /dev/fb0 from the numbers sysfs reports. */
@@ -263,6 +278,7 @@ int main(void)
     }
     kmsg_fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
     klog("init started");
+    loopback_up();
     if (usb_console_start() != 0)
         klog("no USB console");
 

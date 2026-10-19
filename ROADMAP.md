@@ -74,10 +74,12 @@ Design principles:
 
 ## Phase 3 — Claude-native
 
-- [ ] `afterglowd`: MCP server on the headset (apps, files, screenshot, logs, sensors, gated shell)
+- [x] `afterglowd` 0.1: MCP server on the headset over Wi-Fi: shell, files, screenshot, logs, status;
+      paired over USB; found as `afterglow.local` ([README](system/afterglowd/README.md))
+- [ ] `afterglowd`: apps (create, run, stop) and sensors
+- [ ] TLS for afterglowd (the token currently crosses the network in plain HTTP)
 - [ ] Pairing code shown in the headset; approvals with the controller
 - [ ] On-device API docs served as MCP resources
-- [ ] Prototype first on stock Android over adb, then move into afterglow
 
 ## Phase 4 — Installing
 

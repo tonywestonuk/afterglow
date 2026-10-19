@@ -2,7 +2,8 @@
 
 afterglow's own userspace. For now that's a static program, `/init`, which runs as PID 1 on our kernel
 and plays the 3D boot animation (or the display calibration screen), plus BusyBox for a development
-shell over USB, and the scripts that start the Snapdragon's subsystems and Wi-Fi.
+shell over USB, the scripts that start the Snapdragon's subsystems and Wi-Fi, and `afterglowd`, the
+MCP server through which Claude Code on a computer works on the headset.
 
 | File | What |
 |---|---|
@@ -16,7 +17,8 @@ shell over USB, and the scripts that start the Snapdragon's subsystems and Wi-Fi
 | `tools/logdw.c` | Forwards Android programs' log messages to the kernel log (a stand-in for Android's `logd`) |
 | `scripts/bringup.sh` | Starts the audio DSP, GPU, modem DSP and Wi-Fi as Android would, with the headset's own firmware ([findings](../docs/hardware.md#subsystems-and-wi-fi-without-android)) |
 | `scripts/wifi.sh`, `scripts/udhcpc.sh` | Scan and join Wi-Fi networks, set the country; apply DHCP leases |
-| `third_party/` | BusyBox and wpa_supplicant from upstream source, static on musl (native arm64 container) |
+| `afterglowd/` | The MCP server: shell, files, screenshots, logs, status over Wi-Fi ([README](afterglowd/README.md)) |
+| `third_party/` | BusyBox and wpa_supplicant from upstream source, static on musl (native arm64 container), and the Go toolchain |
 | `build.sh` | Builds `/init` (static aarch64, with zstd's decompressor), the tools, and the initramfs |
 
 ## Kernel command line options
@@ -38,6 +40,7 @@ blender -b --factory-startup -P brand/boot3d/scene.py -- --out out/boot3d/stereo
 python3 tools/pack_anim.py out/boot3d/stereo out/boot3d/boot.anim --fps 36 --loop-start 109
 docker build --platform linux/arm64 -t afterglow-userland system/third_party
 docker run --rm -v "$PWD":/work afterglow-userland          # writes out/third_party
+docker run --rm -v "$PWD":/work afterglow-userland /work/system/afterglowd/build.sh
 docker run --rm -v "$PWD":/work afterglow-kernel-build /work/system/build.sh /work/out/boot3d/boot.anim
 docker run --rm -v "$PWD":/work afterglow-kernel-build /work/kernel/build/make_bootimg.sh \
     /work/firmware/49845030443200410/boot.img /work/out/kernel/Image.gz-dtb /work/out/system/boot.img \
@@ -73,9 +76,10 @@ helper programs already on the headset (its `modem` and `system` partitions, mou
 anything they write goes to RAM). For now it's run by hand from the shell:
 
 ```sh
-tools/console.py --run 'sh /afterglow/bringup.sh all'    # about 11 s until wlan0 exists
+tools/console.py --run 'sh /afterglow/bringup.sh all'    # about 11 s until wlan0 exists; starts afterglowd
 tools/console.py --wifi                                  # asks for a network, password and country
 tools/console.py --run 'sh /afterglow/wifi.sh status'
+tools/console.py --pair                                  # let this computer's Claude Code use afterglowd
 ```
 
 `--wifi` asks on the computer, so the password never appears on a command line, and sends it to the

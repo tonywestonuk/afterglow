@@ -11,6 +11,7 @@ Usage: console.py [--log FILE] [--send CMD]... [--until REGEX] [--duration S] [-
        console.py --wifi                   join a Wi-Fi network (asks here; needs bringup.sh wifi)
        console.py --push LOCAL:REMOTE      copy a small file to the headset (its RAM, unless REMOTE is
                                            on a mounted partition)
+       console.py --pair                   let this computer's Claude Code use afterglowd on the headset
 """
 import argparse
 import base64
@@ -19,8 +20,13 @@ import glob
 import locale
 import os
 import re
+import secrets
 import select
+import shutil
+import socket
+import subprocess
 import sys
+import threading
 import time
 import tty
 
@@ -38,8 +44,8 @@ def find_port(wait, shell):
         time.sleep(0.5)
 
 
-def run(fd, command, timeout):
-    """Run one command in the shell; print its output; return its exit status.
+def run(fd, command, timeout, emit=None):
+    """Run one command in the shell; print its output (or pass each line to emit); return its exit status.
 
     The command is wrapped in markers it prints itself: echo "__AG""_START__"; ...; echo "__AG""_DONE__$?".
     The shell's echo of the typed line only ever contains the split, quoted form (and wraps long
@@ -47,6 +53,7 @@ def run(fd, command, timeout):
     """
     os.write(fd, f'\necho "__AG""_START__"; {command}; echo "__AG""_DONE__$?"\n'.encode())
     done = re.compile(r"__AG_DONE__(\d+)")
+    emit = emit or (lambda line: print(line, flush=True))
     pending, started, deadline = b"", False, time.time() + timeout
     while time.time() < deadline:
         ready, _, _ = select.select([fd], [], [], 0.5)
@@ -62,9 +69,9 @@ def run(fd, command, timeout):
             m = done.search(line)
             if m:
                 if line[:m.start()]:
-                    print(line[:m.start()], flush=True)   # output without a final newline
+                    emit(line[:m.start()])   # output without a final newline
                 return int(m.group(1))
-            print(line, flush=True)
+            emit(line)
     print(f"--- no result within {timeout:.0f} s", file=sys.stderr)
     return 124
 
@@ -80,6 +87,62 @@ def push(fd, local, remote):
         if run(fd, f"printf %s '{data[i:i + 768]}' >> '{staged}'", 30):
             return 1
     return run(fd, f"base64 -d '{staged}' > '{remote}' && rm '{staged}' && md5sum '{remote}'", 30)
+
+
+def resolve(host, timeout=5):
+    """The host's IPv4 address, or None if it doesn't resolve within timeout seconds."""
+    found = []
+
+    def lookup():
+        try:
+            found.append(socket.gethostbyname(host))
+        except OSError:
+            pass
+    t = threading.Thread(target=lookup, daemon=True)
+    t.start()
+    t.join(timeout)
+    return found[0] if found else None
+
+
+def pair(fd):
+    """Pair this computer with afterglowd on the headset, over USB: the link only someone holding the
+    headset can use. The token is made once and kept in ~/.config/afterglow/token; the headset keeps
+    it in RAM only, so pair again after it restarts. The first time, Claude Code is told about the
+    server (for the project in the current directory).
+    """
+    path = os.path.expanduser("~/.config/afterglow/token")
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+            f.write(secrets.token_urlsafe(32) + "\n")
+    with open(path) as f:
+        token = f.read().strip()
+    if run(fd, f"(umask 077; mkdir -p /run/afterglowd; echo {token} > /run/afterglowd/token)", 30):
+        return 1
+    print("the headset now accepts this computer's token")
+
+    # afterglow.local (mDNS) survives DHCP giving the headset a new address; fall back to the address
+    host = "afterglow.local"
+    if not resolve(host):
+        lines = []
+        run(fd, "ip -4 -o addr show wlan0", 30, lines.append)
+        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/", " ".join(lines))
+        if not m:
+            print("the headset has no Wi-Fi address yet: join a network (--wifi), then pair again")
+            return 1
+        host = m.group(1)
+        print(f"afterglow.local doesn't resolve here; using the headset's address, {host}")
+    url = f"http://{host}:7070/mcp"
+    if not shutil.which("claude"):
+        print(f"to use it from Claude Code: claude mcp add --transport http afterglow {url} "
+              '--header "Authorization: Bearer $(cat ~/.config/afterglow/token)"')
+    elif subprocess.run(["claude", "mcp", "get", "afterglow"], capture_output=True).returncode == 0:
+        print(f"Claude Code already knows afterglow (claude mcp get afterglow); this pairing is for {url}")
+    else:
+        subprocess.run(["claude", "mcp", "add", "--transport", "http", "afterglow", url,
+                        "--header", f"Authorization: Bearer {token}"], check=True, capture_output=True)
+        print(f"added afterglow ({url}) to Claude Code for {os.getcwd()}; start a new session to use it")
+    return 0
 
 
 def join_wifi(fd):
@@ -113,9 +176,10 @@ def main():
     p.add_argument("--timeout", type=float, default=60, help="seconds to allow --run")
     p.add_argument("--wifi", action="store_true", help="join a Wi-Fi network (asks for it here)")
     p.add_argument("--push", metavar="LOCAL:REMOTE", help="copy a small file to the headset")
+    p.add_argument("--pair", action="store_true", help="let this computer's Claude Code use afterglowd")
     args = p.parse_args()
 
-    shell = args.shell or bool(args.run) or args.wifi or bool(args.push)
+    shell = args.shell or bool(args.run) or args.wifi or bool(args.push) or args.pair
     port = find_port(args.wait, shell)
     if not port:
         sys.exit(f"no afterglow {'shell' if shell else 'console'} appeared within {args.wait:.0f} s")
@@ -128,6 +192,8 @@ def main():
     if args.push:
         local, _, remote = args.push.partition(":")
         sys.exit(push(fd, local, remote))
+    if args.pair:
+        sys.exit(pair(fd))
     log = open(args.log, "a") if args.log else None
     print(f"--- connected to {port} at {time.strftime('%H:%M:%S')}", flush=True)
     for cmd in args.send:

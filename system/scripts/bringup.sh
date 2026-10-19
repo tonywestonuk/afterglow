@@ -17,6 +17,7 @@
 #   modem    (alternative to permgr) hold the modem on by opening its device
 #   wlan     start the Wi-Fi driver
 #   wifi     wpa_supplicant and DHCP on wlan0 (join a network with wifi.sh)
+#   afterglowd  the MCP server, for Claude Code on a computer (pair with tools/console.py --pair)
 #   all      every step in order
 set -u
 
@@ -230,13 +231,20 @@ wifi() {
     done
 }
 
-[ $# -gt 0 ] || { sed -n '6,20p' "$0"; exit 1; }
+# afterglow's MCP server (system/afterglowd), on port 7070 and as afterglow.local. It answers only
+# requests carrying the token tools/console.py --pair puts in /run/afterglowd over USB.
+afterglowd() {
+    mkdir -p /run/afterglowd && chmod 0700 /run/afterglowd
+    daemon afterglowd /bin/afterglowd
+}
+
+[ $# -gt 0 ] || { sed -n '6,21p' "$0"; exit 1; }
 for step in "$@"; do
-    [ "$step" = all ] && set -- mounts android ssr adsp gpu efs tftp pdmapper cnss permgr wlan wifi
+    [ "$step" = all ] && set -- mounts android ssr adsp gpu efs tftp pdmapper cnss permgr wlan wifi afterglowd
 done
 for step in "$@"; do
     case $step in
-        mounts | android | ssr | adsp | gpu | efs | tftp | pdmapper | cnss | permgr | modem | wlan | wifi)
+        mounts | android | ssr | adsp | gpu | efs | tftp | pdmapper | cnss | permgr | modem | wlan | wifi | afterglowd)
             $step || { log "$step failed"; exit 1; } ;;
         *) echo "unknown step: $step"; exit 1 ;;
     esac

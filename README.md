@@ -32,6 +32,8 @@ Done so far:
 - **Wi-Fi, still with no Android running**: the Snapdragon's audio DSP, GPU and modem DSP started with
   their firmware, and the headset joins a WPA2 network and reaches the internet
   ([how](docs/hardware.md#subsystems-and-wi-fi-without-android)).
+- **`afterglowd`, an MCP server on the headset**: Claude Code on a Mac runs commands, edits files, reads
+  logs and sees the displays over Wi-Fi, paired over USB ([system/afterglowd](system/afterglowd/README.md)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 

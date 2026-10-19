@@ -32,6 +32,11 @@ never put a device serial number in the repo.
   `--run 'COMMAND'` to run a command in the headset's BusyBox shell. Console logs contain the
   device serial number: keep them in `out/`.
   Test boot images carry `afterglow.test_seconds=N afterglow.restart_to=bootloader` as a safety net.
+- Once `afterglowd` is up and paired (`tools/console.py --pair`, see `system/afterglowd/README.md`), it's
+  the faster way in: MCP tools over Wi-Fi at `http://afterglow.local:7070/mcp`, token in
+  `~/.config/afterglow/token` (never print it). Its `write_file` refuses anything under `/dev`; test
+  guards like that only with harmless paths (`/dev/null`, made-up names in a temp folder), never with
+  a real disk such as `/dev/sda`.
 - Magisk's root prompt can't display on a Quest with a custom launcher. Use the root overlay in
   `tools/root-overlay/` ([procedure](docs/rooting-and-backup.md)).
 - macOS has no `timeout`, and Bash is 3.2: keep scripts portable.
