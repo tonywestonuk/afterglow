@@ -2,9 +2,13 @@
  * afterglow world API, for extensions (docs/apps.md).
  *
  * An extension is a C file, compiled to WebAssembly on the headset, that defines any of:
- *   void on_load(void)          once when it's loaded: make meshes, shaders and objects here
+ *   void on_load(void)          once when it's loaded: make meshes, shaders and objects here, and recall()
+ *                               the state an earlier version kept
  *   void on_frame(float dt)     every frame; dt is the seconds since the last one
- *   void on_unload(void)        just before it's replaced or removed
+ *   void on_unload(void)        just before it's replaced or removed, or the world stops: remember() state
+ * Make one extension per thing that changes on its own (the dog, the cat, the ducks): changing one then
+ * reloads only that one, and the rest carry on. They can still see each other (object_get_transform)
+ * and share values (remember, recall).
  * Everything an extension creates goes when it's unloaded, and everything it changed on objects it
  * didn't create (such as the world's "floor") is put back, so each new version starts from a clean
  * world. A crash (a trap) or an endless loop unloads just that extension.
@@ -94,6 +98,21 @@ AG_IMPORT(object_set_blend) int object_set_blend(int object, int mode);
  * quaternion (x, y, z, w) turning the head's axes (x right, y up, -z ahead) into the world's. Only
  * turning is tracked (the IMU), with a neck model; returns 1 when tracking, 0 when not */
 AG_IMPORT(head_pose) int head_pose(float position[3], float orientation[4]);
+
+/* Any object's transform, yours or another extension's (find theirs by name with object_find): so the
+ * cat can see where the dog is without being part of the same extension */
+AG_IMPORT(object_get_transform) int object_get_transform(int object, float matrix[16]);
+
+/*
+ * Memory that outlives this version of the extension, and the world itself (it's kept on storage). Keep
+ * your state in on_unload() and get it back in on_load(): a new version then carries on where the old
+ * one was (the dog stays where it had got to) instead of starting again. Keys are shared by all
+ * extensions, so they can also tell each other things ("dog.position", every frame if need be).
+ * recall() copies up to `size` bytes and returns how many were kept, or -1 if nothing is kept under that
+ * key. Up to 64 KB a key. If the layout of what you keep changes between versions, change the key.
+ */
+AG_IMPORT(remember) int remember(const char *key, const void *data, int size);
+AG_IMPORT(recall) int recall(const char *key, void *data, int size);
 
 /* The colour behind everything */
 AG_IMPORT(set_background) int set_background(float r, float g, float b);

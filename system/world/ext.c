@@ -182,6 +182,24 @@ static int32_t x_head_pose(wasm_exec_env_t env, uint32_t position, uint32_t orie
     return tracked;
 }
 
+static int32_t x_remember(wasm_exec_env_t env, const char *key, const uint8_t *data, uint32_t size)
+{
+    (void)env;
+    return noted(world_remember(key, data, (int)size));
+}
+
+static int32_t x_recall(wasm_exec_env_t env, const char *key, uint8_t *data, uint32_t size)
+{
+    (void)env;
+    return world_recall(key, data, (int)size);
+}
+
+static int32_t x_object_get_transform(wasm_exec_env_t env, int32_t object, uint32_t matrix)
+{
+    float *m = array(env, matrix, 16 * sizeof(float));
+    return m ? noted(world_object_get_transform(object, m)) : -1;
+}
+
 static int32_t x_set_background(wasm_exec_env_t env, float r, float g, float b)
 {
     (void)env;
@@ -229,6 +247,9 @@ int ext_init(void)
         { "object_set_texture", (void *)x_object_set_texture, "(iii)i", NULL },
         { "object_set_blend", (void *)x_object_set_blend, "(ii)i", NULL },
         { "head_pose", (void *)x_head_pose, "(ii)i", NULL },
+        { "remember", (void *)x_remember, "($*~)i", NULL },
+        { "recall", (void *)x_recall, "($*~)i", NULL },
+        { "object_get_transform", (void *)x_object_get_transform, "(ii)i", NULL },
         { "set_background", (void *)x_set_background, "(fff)i", NULL },
         { "world_seconds", (void *)x_world_seconds, "()F", NULL },
         { "log_message", (void *)x_log_message, "($)", NULL },
@@ -410,6 +431,15 @@ void ext_list(char *reply, size_t size)
     }
     if (used == 0)
         snprintf(reply, size, "no extensions loaded\n");
+}
+
+void ext_unload_all(void)
+{
+    for (int i = 0; i < MAX_EXTENSIONS; i++)
+        if (extensions[i].used) {
+            stop_extension(&extensions[i]);
+            memset(&extensions[i], 0, sizeof(extensions[i]));
+        }
 }
 
 void ext_frame(float dt)

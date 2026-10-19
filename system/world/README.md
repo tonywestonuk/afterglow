@@ -10,6 +10,7 @@ through afterglowd's tools; the extension API is [`sdk/afterglow.h`](sdk/aftergl
 | `ext.c` | Extensions in WAMR's fast interpreter: the API as WebAssembly imports, an instruction budget per call, unloading and restoring on failure |
 | `lens.c` | The lenses: Meta's lens model for the Quest 1, a warp mesh per eye (per colour) from the eye buffers to the panels |
 | `head.c` | Head tracking, turning only: the IMU through SyncBoss, fused into the head's orientation, a neck model, prediction |
+| `memory.c` | The world's memory: named values (`remember`, `recall`) that outlive extensions' versions and the world, kept on storage |
 | `sign.c` | The road-works sign put beside a placeholder |
 | `paint.c` | Pictures on the CPU: images from files (stb_image), text (stb_truetype, from distance fields so the light font can be made bolder), the sign's face |
 | `gles.c` | Qualcomm's OpenGL ES driver, loaded by name (no Android properties) |

@@ -100,6 +100,24 @@ The lens centres moved to Meta's (60 px further out than the splash logo suggest
 things no longer make the eyes converge. The warp is an extra pass: the village went from 35-40 to
 about 29 frames drawn a second, still shown at every refresh.
 
+## Changing one thing without restarting the rest (2026-10-19)
+
+A village green with a dog, a cat, ducks and squirrels: every change to one animal restarted them all,
+and they lost where they were. The world never restarts other extensions, but the animals were all in
+one extension, because the API gave an extension no way to see another's objects. Now:
+
+- `object_get_transform()` reads any object's transform, so the cat can watch the dog from its own
+  extension: one extension per thing that changes on its own.
+- `remember(key, data, size)` and `recall()`: the world's memory, named values that outlive an
+  extension's versions and the world itself (`/storage/world/memory`, saved every 10 s and as the world
+  stops). An extension keeps its state in `on_unload()` and gets it back in `on_load()`, so a new
+  version carries on where the old one was. Keys are shared, so extensions can also tell each other
+  things.
+- When the world stops, every extension's `on_unload()` runs, so restarting the world (as a new world
+  program needs) loses nothing an extension kept.
+
+Tested: a counter carried from v1 to v2 (frame 106 on) and through a world restart (frame 230 on).
+
 ## Tilting, not yet (2026-10-19)
 
 Turning and nodding are reprojected (the picture slides); tilting the head isn't, so a tilt shows the

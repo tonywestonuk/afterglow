@@ -47,6 +47,12 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
   sign beside it. Then write the real version under the same name; it replaces the placeholder and
   the sign. Tell the person what's coming.
 - To change an extension, send edits (old and new text), not the whole source again.
+- One extension per thing that changes on its own (the dog, the cat, the ducks, the village): loading
+  a new version reloads only that one, and everything else carries on. They see each other's objects
+  (object_find, object_get_transform) and share values (remember, recall).
+- Keep state: remember() it in on_unload() and recall() it in on_load(), so a new version carries on
+  where the old one was (the dog where it had walked to) instead of starting again. The memory
+  outlives world restarts too.
 - Textures: generate_texture (an image generator on the network paints one from a description) or
   fetch_texture (any image URL, e.g. CC0 textures from Poly Haven or ambientCG); then
   texture_load("name") in an extension. texture_create takes pixels an extension makes itself.

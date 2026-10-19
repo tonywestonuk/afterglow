@@ -150,6 +150,7 @@ static int standard_shader;
 static GLuint white;          /* what an empty texture slot reads: plain white */
 static float anisotropy = 1;  /* the sharpest texture filtering the GPU offers */
 static char texture_dir[256] = "/storage/world/textures";   /* $AFTERGLOW_WORLD_DIR/textures */
+static char memory_path[256] = "/storage/world/memory";       /* $AFTERGLOW_WORLD_DIR/memory */
 
 static int fail(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static int fail(const char *fmt, ...)
@@ -164,6 +165,15 @@ static int fail(const char *fmt, ...)
 const char *world_error(void)
 {
     return error;
+}
+
+int world_fail(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(error, sizeof(error), fmt, ap);
+    va_end(ap);
+    return -1;
 }
 
 unsigned world_shader_program(int id)
@@ -531,6 +541,15 @@ int world_object_set_transform(int ext, int object, const float matrix[16])
 {
     struct object *o = changing(ext, object, CHANGE_TRANSFORM);
     return o ? (memcpy(o->model, matrix, sizeof(o->model)), 0) : -1;
+}
+
+int world_object_get_transform(int object, float matrix[16])
+{
+    struct object *o = object_get(object);
+    if (!o)
+        return fail("object_get_transform: there's no object %d", object);
+    memcpy(matrix, o->model, sizeof(o->model));
+    return 0;
 }
 
 int world_object_set_visible(int ext, int object, int visible)
@@ -1389,8 +1408,11 @@ int main(void)
     signal(SIGINT, stop);
     signal(SIGPIPE, SIG_IGN);
     read_roll();
-    if (getenv("AFTERGLOW_WORLD_DIR"))
+    if (getenv("AFTERGLOW_WORLD_DIR")) {
         snprintf(texture_dir, sizeof(texture_dir), "%s/textures", getenv("AFTERGLOW_WORLD_DIR"));
+        snprintf(memory_path, sizeof(memory_path), "%s/memory", getenv("AFTERGLOW_WORLD_DIR"));
+    }
+    memory_load(memory_path);
     GLuint eye_fbo, eye_buffers, panel_fbo, panel_image;
     if (gles_init() != 0 || gles_framebuffer(W, H, 0, 0, &panel_fbo, &panel_image) != 0 ||
         gles_framebuffer(2 * EYE_W, H, 1, 1, &eye_fbo, &eye_buffers) != 0 || lens_init() != 0 ||
@@ -1476,6 +1498,7 @@ int main(void)
                  1000 * slowest_copy, 1000 * turn_rows_max, 1000 * turn_wake_max, drawn ? 1000 * drawing_time / drawn : 0,
                  gpu_busy);
             missed = turned = 0, slowest_copy = turn_rows_max = turn_wake_max = 0;
+            memory_save(memory_path);   /* if anything changed */
             report = world_time(), drawn = 0, drawing_time = 0;
             refreshes = 0, copying = 0;
             double hot = soc_temperature();
@@ -1491,6 +1514,8 @@ int main(void)
         }
     }
     pthread_join(display, NULL);
+    ext_unload_all();   /* each keeps its state, for when the world comes back */
+    memory_save(memory_path);
     gpu_floor(GPU_GOVERNED);
     unlink(OWNER_PATH);
     unlink(SOCKET_PATH);

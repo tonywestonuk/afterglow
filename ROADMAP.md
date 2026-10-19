@@ -88,6 +88,8 @@ grass extension is compiled and linked in without the world stopping.
 - [x] Textures from an image generator on the network (`generate_texture`, AUTOMATIC1111 web API) or
       the web (`fetch_texture`); made seamless when asked
 - [x] Head pose in the world API (`head_pose()`), tracked by the IMU
+- [x] Extensions see each other (`object_get_transform`) and keep state across versions and restarts
+      (`remember`, `recall`), so a change reloads only what changed and carries on where it was
 - [ ] Input in the world API: buttons now, controllers later
 - [ ] Instancing (many copies of a mesh in one draw), and a raised GPU clock while the world runs
 - [ ] Ahead-of-time compiled extensions (`wamrc`) for heavy per-frame code

@@ -48,6 +48,16 @@ int world_object_set_texture(int ext, int object, int slot, int texture);
 int world_object_set_blend(int ext, int object, int mode);
 int world_set_background(int ext, float r, float g, float b);
 const char *world_error(void);
+/* Set the reason world_error() gives and return -1 */
+int world_fail(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+/* Any object's transform, whoever made it */
+int world_object_get_transform(int object, float matrix[16]);
+
+/* The world's memory (memory.c): named values that outlive extensions' versions and the world */
+int world_remember(const char *key, const void *data, int size);
+int world_recall(const char *key, void *data, int size);   /* the size kept, or -1 if none */
+void memory_load(const char *path);
+void memory_save(const char *path);
 /* Free what an extension created and put back what it changed */
 void world_release(int ext);
 
@@ -83,6 +93,8 @@ int ext_init(void);
 int ext_load(const char *name, const char *path, int placeholder, char *reply, size_t size);
 int ext_unload(const char *name, char *reply, size_t size);
 void ext_list(char *reply, size_t size);
+/* As the world stops: every extension's on_unload(), so they can keep their state */
+void ext_unload_all(void);
 /* Every loaded extension's on_frame(dt); one that fails is unloaded */
 void ext_frame(float dt);
 
