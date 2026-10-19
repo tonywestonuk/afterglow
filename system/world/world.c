@@ -6,10 +6,14 @@
  * command per connection, the reply ending when the connection closes:
  *   load NAME PATH [placeholder]
  *                     load extension NAME from a WebAssembly file, replacing any loaded version; a
- *                     placeholder gets a road-works sign beside it until the real thing replaces it
+ *                     placeholder gets a "Claude at work" sign beside it until the real thing replaces it
  *   unload NAME
  *   list
  *   recentre          make the way the wearer faces now "ahead" (-z)
+ *   status TEXT       what Claude is doing, shown on a panel in front of the wearer (sign.c)
+ *   snapshot PATH eyes|panels
+ *                     write the newest frame to PATH, raw RGBA 2880x1600 rows top first, as the wearer
+ *                     sees it: "eyes" undistorted (the eye buffers), "panels" warped for the lenses
  *   quit
  * While it runs it owns the display: /run/afterglow/display-owner holds its pid, and /init's status
  * screen keeps off the screen.
@@ -121,7 +125,8 @@ struct uniform {
 };
 
 struct object {
-    int used, owner, mesh, shader, visible, blend, blink;
+    int used, owner, mesh, shader, visible, blend;
+    float spin;   /* radians a second about its own z axis: the world turns it (sign.c's asterisk) */
     int textures[TEXTURE_SLOTS];
     char name[48];
     float model[16];
@@ -472,6 +477,35 @@ int world_texture_text(int ext, const char *text, int pixel_height, uint32_t ink
     return id;
 }
 
+/* For the world's own things: free one texture or mesh it made (extensions' go with world_release) */
+void world_texture_delete(int texture)
+{
+    struct texture *t = texture_get(texture);
+    if (!t)
+        return;
+    glDeleteTextures(1, &t->id);
+    t->used = 0;
+    for (int k = 0; k < MAX_OBJECTS; k++)
+        for (int s = 0; s < TEXTURE_SLOTS; s++)
+            if (objects[k].textures[s] == texture)
+                objects[k].textures[s] = 0;
+}
+
+void world_mesh_delete(int mesh)
+{
+    struct mesh *m = mesh_get(mesh);
+    if (!m)
+        return;
+    glDeleteVertexArrays(1, &m->vao);
+    glDeleteBuffers(1, &m->vbo);
+    if (m->ibo)
+        glDeleteBuffers(1, &m->ibo);
+    m->used = 0;
+    for (int k = 0; k < MAX_OBJECTS; k++)
+        if (objects[k].mesh == mesh)
+            objects[k].mesh = 0;
+}
+
 int world_texture_size(int texture, int *width, int *height)
 {
     struct texture *t = texture_get(texture);
@@ -596,10 +630,10 @@ int world_object_set_blend(int ext, int object, int mode)
     return o ? (o->blend = mode, 0) : -1;
 }
 
-int world_object_set_blink(int object, int blink)
+int world_object_set_spin(int object, float radians_a_second)
 {
     struct object *o = object_get(object);
-    return o ? (o->blink = blink, 0) : fail("there's no object %d", object);
+    return o ? (o->spin = radians_a_second, 0) : fail("there's no object %d", object);
 }
 
 /* Where a mesh's box corner lands, through an object's transform */
@@ -817,12 +851,19 @@ static void draw_object(const struct object *o, const float vp[16], const float 
     static const float ones[4] = { 1, 1, 1, 1 }, zeros[3] = { 0, 0, 0 };
     struct mesh *m = mesh_get(o->mesh);
     struct shader *s = shader_get(o->shader);
-    float mvp[16], normal[9];
-    mat_mul(mvp, vp, o->model);
-    normal_matrix(normal, o->model);
+    float mvp[16], normal[9], spun[16];
+    const float *model = o->model;
+    if (o->spin != 0) {   /* turned about its own z axis as time goes by */
+        float a = fmodf(time * o->spin, 2 * (float)M_PI), c = cosf(a), s = sinf(a);
+        float turn[16] = { c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+        mat_mul(spun, o->model, turn);
+        model = spun;
+    }
+    mat_mul(mvp, vp, model);
+    normal_matrix(normal, model);
     glUseProgram(s->program);
     glUniformMatrix4fv(s->mvp, 1, GL_FALSE, mvp);
-    glUniformMatrix4fv(s->model, 1, GL_FALSE, o->model);
+    glUniformMatrix4fv(s->model, 1, GL_FALSE, model);
     glUniformMatrix3fv(s->normal, 1, GL_FALSE, normal);
     glUniform1fv(s->time, 1, &time);
     glUniform3fv(s->eye, 1, eye_position);
@@ -846,10 +887,6 @@ static void draw_object(const struct object *o, const float vp[16], const float 
             glUniform2fv(at, 1, un->values);
         else
             glUniform1fv(at, un->count, un->values);
-    }
-    if (o->blink) {   /* a road-works lamp: amber, a flash a second */
-        float on = fmodf(time, 1.0f) < 0.45f, glow[3] = { 1.0f * on, 0.55f * on, 0.05f * on };
-        glUniform3fv(s->emission, 1, glow);
     }
     for (int t = 0; t < TEXTURE_SLOTS; t++) {
         struct texture *tx = texture_get(o->textures[t]);
@@ -957,6 +994,7 @@ static int display_open(void)
 #define DISPLAY_AHEAD 0.019   /* from the copy to the middle of the next refresh's scan-out */
 
 static GLuint pbo[2];
+static GLuint eye_fbo, panel_fbo;          /* the eyes, drawn; and warped for the lenses, as the panels show them */
 static GLsync drawing;                     /* done when the frame on the GPU is */
 static int drawing_pbo = -1, next_pbo;
 static float drawn_rotation[9];
@@ -1286,6 +1324,44 @@ static int control_open(void)
     return s;
 }
 
+/*
+ * A snapshot for afterglowd's screenshot: the newest frame whole (reading the framebuffer itself, while
+ * pages flip 72 times a second, mixes refreshes), as the wearer sees it, rows top first. "eyes" is
+ * the eye buffers, undistorted (easiest to judge a scene by); "panels" is the frame warped for the
+ * lenses, as it goes to the panels (before the refresh's slide for the head).
+ */
+static void snapshot(const char *file, int panels, char *reply, size_t size)
+{
+    uint32_t *image = malloc((size_t)W * H * 4);
+    if (!image) {
+        snprintf(reply, size, "error: no memory\n");
+        return;
+    }
+    if (panels) {
+        pthread_mutex_lock(&shown_lock);
+        const uint32_t *frame = (const uint32_t *)shown;
+        for (int i = 0; frame && i < W * H; i++)   /* the framebuffer is the wearer's view turned 180° */
+            image[i] = frame[W * H - 1 - i];
+        pthread_mutex_unlock(&shown_lock);
+    } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, eye_fbo);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, image);   /* rows bottom first */
+        for (int y = 0; y < H / 2; y++)
+            for (int x = 0; x < W; x++) {
+                uint32_t t = image[(size_t)y * W + x];
+                image[(size_t)y * W + x] = image[(size_t)(H - 1 - y) * W + x];
+                image[(size_t)(H - 1 - y) * W + x] = t;
+            }
+    }
+    FILE *f = fopen(file, "wb");
+    int ok = f && fwrite(image, 4, (size_t)W * H, f) == (size_t)W * H;
+    if (f && fclose(f) != 0)
+        ok = 0;
+    free(image);
+    snprintf(reply, size, ok ? "%dx%d %s\n" : "error: can't write the snapshot\n", W, H, panels ? "panels" : "eyes");
+}
+
 /* Handle a command if one is waiting: a line, answered and then the connection closed */
 static void control_poll(int listener)
 {
@@ -1303,14 +1379,25 @@ static void control_poll(int listener)
     }
     line[len] = '\0';
     line[strcspn(line, "\r\n")] = '\0';
+    if (strncmp(line, "status ", 7) == 0) {   /* the rest of the line is the text */
+        status_set(line + 7);
+        snprintf(reply, sizeof(reply), "shown\n");
+        line[0] = '\0';
+    }
     char verb[16] = "", name[64] = "", path[512] = "", flag[16] = "";
     sscanf(line, "%15s %63s %511s %15s", verb, name, path, flag);
+    if (strcmp(verb, "snapshot") == 0 && name[0]) {   /* (name is the file, path is which view) */
+        snapshot(name, strcmp(path, "panels") == 0, reply, sizeof(reply));
+        verb[0] = '\0';
+    }
     if (strcmp(verb, "load") == 0 && name[0] && path[0])
         ext_load(name, path, strcmp(flag, "placeholder") == 0, reply, sizeof(reply));
     else if (strcmp(verb, "unload") == 0 && name[0])
         ext_unload(name, reply, sizeof(reply));
     else if (strcmp(verb, "list") == 0)
         ext_list(reply, sizeof(reply));
+    else if (!verb[0] && reply[0])
+        ;   /* answered above */
     else if (strcmp(verb, "test-tilt") == 0) {   /* development: turn every refresh by NAME degrees more */
         test_tilt = strtof(name, NULL) * (float)M_PI / 180;
         snprintf(reply, sizeof(reply), "every refresh now turned %.2f degrees more\n", test_tilt * 180 / M_PI);
@@ -1413,7 +1500,7 @@ int main(void)
         snprintf(memory_path, sizeof(memory_path), "%s/memory", getenv("AFTERGLOW_WORLD_DIR"));
     }
     memory_load(memory_path);
-    GLuint eye_fbo, eye_buffers, panel_fbo, panel_image;
+    GLuint eye_buffers, panel_image;
     if (gles_init() != 0 || gles_framebuffer(W, H, 0, 0, &panel_fbo, &panel_image) != 0 ||
         gles_framebuffer(2 * EYE_W, H, 1, 1, &eye_fbo, &eye_buffers) != 0 || lens_init() != 0 ||
         display_open() != 0 || frames_open() != 0 || make_floor() != 0 || make_standard_shader() != 0 ||
@@ -1471,6 +1558,7 @@ int main(void)
         interval += (fmin(t - last, 0.2) - interval) * 0.1;
         last = t;
         head_pose(fmin(interval + DISPLAY_AHEAD, PREDICT_MAX), head_rotation, head_centre);
+        status_frame(t, head_rotation, head_centre);
         glBindFramebuffer(GL_FRAMEBUFFER, eye_fbo);
         glClearColor(background[0], background[1], background[2], 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

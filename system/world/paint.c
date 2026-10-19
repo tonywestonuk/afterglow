@@ -1,7 +1,7 @@
 /*
  * Pictures made on the CPU, as RGBA (8 bits a channel, rows top first), for textures: images from files
  * (stb_image), text in afterglow's font (stb_truetype, drawn from distance fields so it can be made
- * bolder), and the road-works sign put beside placeholders.
+ * bolder), and the "Claude at work" sign put beside placeholders.
  */
 #include <math.h>
 #include <stdio.h>
@@ -146,7 +146,7 @@ uint8_t *paint_text(const char *text, int pixel_height, uint32_t ink, float weig
     return rgba;
 }
 
-/* ---- The road-works sign ---- */
+/* ---- The "Claude at work" sign ---- */
 
 /* Distances in pixels, negative inside */
 static float segment(float px, float py, float ax, float ay, float bx, float by)
@@ -212,7 +212,7 @@ static float digger(float px, float py)
 }
 
 /*
- * The sign's face, 512x640: the triangle above (rows 0-511) and a plate saying MEN AT WORK below
+ * The sign's face, 512x640: the triangle above (rows 0-511) and a plate saying CLAUDE AT WORK below
  * (rows 512-639), transparent around both. *mask is the same shapes in plain white, for its back.
  */
 uint8_t *paint_sign(int *width, int *height, uint8_t **mask)
@@ -225,7 +225,7 @@ uint8_t *paint_sign(int *width, int *height, uint8_t **mask)
     uint8_t *words = NULL;
     while (px_height > 20) {   /* as large as fits on the plate */
         free(words);
-        words = paint_text("MEN AT WORK", px_height, 0, px_height * 0.05f, &tw, &th);
+        words = paint_text("CLAUDE AT WORK", px_height, 0, px_height * 0.05f, &tw, &th);
         if (!words || tw <= 440)
             break;
         px_height -= 4;

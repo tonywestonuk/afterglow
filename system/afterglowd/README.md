@@ -35,7 +35,8 @@ Wi-Fi networks, so after a restart nothing is needed: it reconnects and Claude C
 | `list_dir` | Type, permissions, size, name, link targets |
 | `status` | Uptime, load, memory, battery, SoC temperature, the Snapdragon's subsystems, addresses, Wi-Fi |
 | `logs` | The kernel log (afterglow's and Android daemons' messages are there too) or a log file, last N lines, filtered by a regular expression |
-| `screenshot` | Both eyes or one, as the wearer sees them, as PNG; 1/2 scale by default (1440×800) |
+| `screenshot` | Both eyes or one, as the wearer sees them, as PNG; 1/2 scale by default (1440×800). While the world runs it asks the world for its newest frame (the display flips 72 times a second, faster than it can be read): `eyes` (default) undistorted, `panels` warped for the lenses; `screen` reads the display itself |
+| `/status` (not a tool) | POST `{"text": ...}` with the token: what Claude is doing, shown in the world and on the status screen; sent by the project's Claude Code hooks (`tools/claude_status_hook.py`) |
 | `load_extension` | Compile C source for the 3D world on the headset and load it while the world runs; `edits` change the newest version instead of resending it; `placeholder` adds a road-works sign; or go back to an earlier `version` ([system/world](../world/README.md)) |
 | `unload_extension`, `list_extensions` | Remove one (everything it did is undone); what's loaded, what failed and why, versions kept |
 | `start_world`, `stop_world` | The world on the displays, or back to the status screen |

@@ -61,14 +61,19 @@ void memory_save(const char *path);
 /* Free what an extension created and put back what it changed */
 void world_release(int ext);
 
-/* For the world's own things (sign.c): an object that blinks amber, and the box around everything an
- * extension made (0, or -1 if it made nothing visible) */
-int world_object_set_blink(int object, int blink);
+/* For the world's own things (sign.c): an object the world keeps turning about its own z axis, and the
+ * box around everything an extension made (0, or -1 if it made nothing visible) */
+int world_object_set_spin(int object, float radians_a_second);
 int world_extension_bounds(int ext, float lo[3], float hi[3]);
-/* Put a road-works sign beside everything an extension made, to say it's a placeholder */
+/* Put a "Claude at work" sign beside everything an extension made, to say it's a placeholder */
 int sign_place(int ext, const char *name);
+/* What Claude is doing (afterglowd passes on its status messages): shown on a panel, see sign.c */
+void status_set(const char *text);
+void status_frame(double now, const float head_rotation[9], const float head_centre[3]);
+void world_texture_delete(int texture);
+void world_mesh_delete(int mesh);
 
-/* Painting on the CPU (paint.c): text and the road-works sign, as RGBA images (free them) */
+/* Painting on the CPU (paint.c): text and the "Claude at work" sign, as RGBA images (free them) */
 int paint_init(const char *font_path);
 uint8_t *paint_text(const char *text, int pixel_height, uint32_t ink, float weight, int *width, int *height);
 uint8_t *paint_sign(int *width, int *height, uint8_t **mask);
@@ -89,7 +94,7 @@ void pin_thread(int first_core, int last_core, int priority);
 
 /* Extensions (ext.c). Results go in reply, one or more lines. */
 int ext_init(void);
-/* A placeholder gets a road-works sign beside what it makes (sign.c) */
+/* A placeholder gets a "Claude at work" sign beside what it makes (sign.c) */
 int ext_load(const char *name, const char *path, int placeholder, char *reply, size_t size);
 int ext_unload(const char *name, char *reply, size_t size);
 void ext_list(char *reply, size_t size);

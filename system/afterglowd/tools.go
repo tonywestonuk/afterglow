@@ -108,12 +108,15 @@ func tools() []tool {
 		},
 		{
 			Name: "screenshot",
-			Description: "What the headset's displays show, as the wearer sees them: both eyes side by side " +
-				"(left eye on the left), or one eye. Each eye's image includes afterglow's correction for " +
-				"its panel's slight roll, so level lines can look tilted by a degree or two here.",
+			Description: "What the wearer sees: both eyes side by side (left eye on the left), or one eye. While the " +
+				"world runs, view eyes (the default) is its newest frame undistorted, the easiest to judge a scene " +
+				"by; panels is the same warped for the lenses, as it goes to the displays; screen reads the " +
+				"displays themselves (the status screen, when the world isn't running). The head's turning is " +
+				"tracked, so it's wherever the wearer looks.",
 			InputSchema: schema(nil, map[string]any{
 				"eye":       map[string]any{"type": "string", "enum": []string{"both", "left", "right"}, "description": "Default both"},
 				"downscale": prop("integer", "Shrink by this factor, 1 to 4 (default 2: both eyes at 1440x800)"),
+				"view":      map[string]any{"type": "string", "enum": []string{"eyes", "panels", "screen"}, "description": "Default eyes while the world runs, else screen"},
 			}),
 			call: screenshot,
 		},

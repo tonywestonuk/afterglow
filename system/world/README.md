@@ -11,7 +11,7 @@ through afterglowd's tools; the extension API is [`sdk/afterglow.h`](sdk/aftergl
 | `lens.c` | The lenses: Meta's lens model for the Quest 1, a warp mesh per eye (per colour) from the eye buffers to the panels |
 | `head.c` | Head tracking, turning only: the IMU through SyncBoss, fused into the head's orientation, a neck model, prediction |
 | `memory.c` | The world's memory: named values (`remember`, `recall`) that outlive extensions' versions and the world, kept on storage |
-| `sign.c` | The road-works sign put beside a placeholder |
+| `sign.c` | What Claude is doing: the "Claude at work" sign put beside a placeholder, and the status panel |
 | `paint.c` | Pictures on the CPU: images from files (stb_image), text (stb_truetype, from distance fields so the light font can be made bolder), the sign's face |
 | `gles.c` | Qualcomm's OpenGL ES driver, loaded by name (no Android properties) |
 | `sdk/afterglow.h` | The API extensions are written against (on the headset in `/afterglow/sdk/`) |
@@ -55,7 +55,7 @@ python3 tools/push_file.py out/world/toolchain.tar.gz --extract /storage/toolcha
 - `edits` in `load_extension` change the newest version's source (each old text must appear exactly
   once) and load the result as a new version: a tweak costs a line, not the whole file again.
 - **Placeholders.** `placeholder: true` marks a version as a stand-in: after its `on_load()` the world
-  stands a road-works sign (red triangle, a man digging, MEN AT WORK, an amber lamp flashing) on the
+  stands a "Claude at work" sign (red triangle, a figure digging, CLAUDE AT WORK, an orange asterisk spinning) on the
   floor at the front right of everything it made, turned to the wearer, and bigger the farther away
   it is. The sign belongs to that version, so the real one, loaded under the same name, replaces both.
   It's how Claude shows something within seconds while it writes something that takes minutes.

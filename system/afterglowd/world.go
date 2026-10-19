@@ -51,7 +51,7 @@ func worldTools() []tool {
 				"everything it did. Compiler errors, shader errors and crashes come back here; the world keeps " +
 				"running. Send source for a new extension; to change one, send edits instead (much quicker than " +
 				"the whole source again). Every version is kept: pass version alone to go back to an earlier one. " +
-				"placeholder: true puts a road-works sign beside what it makes, for a quick stand-in while you " +
+				"placeholder: true puts a \"Claude at work\" sign beside what it makes, for a quick stand-in while you " +
 				"write the real thing; loading the real one under the same name replaces both. Take a screenshot to see it.",
 			InputSchema: schema([]string{"name"}, map[string]any{
 				"name":   prop("string", "Extension name: lower case, digits, - or _ (e.g. grass)"),
@@ -66,7 +66,7 @@ func worldTools() []tool {
 					}),
 				},
 				"version":     prop("integer", "Load this earlier version (alone), or the version edits apply to"),
-				"placeholder": prop("boolean", "A quick stand-in: the world puts a road-works sign beside it"),
+				"placeholder": prop("boolean", "A quick stand-in: the world puts a \"Claude at work\" sign beside it"),
 			}),
 			call: loadExtension,
 		},

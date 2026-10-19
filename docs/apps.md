@@ -100,6 +100,23 @@ The lens centres moved to Meta's (60 px further out than the splash logo suggest
 things no longer make the eyes converge. The warp is an extra pass: the village went from 35-40 to
 about 29 frames drawn a second, still shown at every refresh.
 
+## What Claude is doing, live (2026-10-19)
+
+The project's Claude Code hooks (`.claude/settings.json`) run `tools/claude_status_hook.py` before
+each tool call, when a prompt arrives and when Claude stops. It sends afterglowd's `/status` (with the
+pairing token) Claude's latest words, from the session's transcript, and the current step, from the
+tool call itself: a command's description, the file being edited, "Loading cat into the world".
+afterglowd shows it on the status screen and passes it to the world, which shows it on a dark panel
+two metres in front of where the wearer looks, below eye level, until 20 s pass without news. The
+words can be a step or two behind (Claude Code saves a message a little after its tool starts); the
+step is current. The hook returns at once; a detached copy does the sending, so a headset that's off
+never slows Claude down. New hooks take effect in a session after `/hooks` or a restart.
+
+Screenshots now come from the world while it runs (`snapshot`): the display flips 72 times a second,
+faster than its 18 MB can be read, so reading the framebuffer gave bands of different refreshes.
+The default view is each eye undistorted (the eye buffers), the easiest to judge a scene by;
+`panels` is the frame warped for the lenses, as it goes to the displays.
+
 ## Changing one thing without restarting the rest (2026-10-19)
 
 A village green with a dog, a cat, ducks and squirrels: every change to one animal restarted them all,
@@ -180,8 +197,8 @@ boxes, lathes, a pixel font) written again in every extension. So:
 
 - **Placeholders.** For anything that will take more than a minute to write, Claude first loads a
   stand-in under the same name, `placeholder: true`: a few `shape()` calls, roughly where and how big
-  the real thing will be, in its colours. The world puts a road-works sign beside it (a red triangle
-  with a man digging, MEN AT WORK, an amber lamp flashing). The real version, loaded under the same
+  the real thing will be, in its colours. The world puts a "Claude at work" sign beside it (a red
+  triangle with a figure digging, CLAUDE AT WORK, an orange asterisk spinning on top). The real version, loaded under the same
   name, replaces both. Measured: a placeholder cottage on screen 2 s after it was sent.
 - **Edits.** `load_extension` takes `edits` (old and new text) against the newest version, so "make
   the blades longer" costs a line.

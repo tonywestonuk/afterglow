@@ -21,7 +21,7 @@
 
 struct extension {
     int used, failed, id;   /* id: whose things are whose in the world; never reused */
-    int placeholder;        /* stands in for something still being made: it gets a road-works sign */
+    int placeholder;        /* stands in for something still being made: it gets a "Claude at work" sign */
     char name[64], path[512], problem[1024];
     uint8_t *bytes;
     wasm_module_t module;
@@ -443,7 +443,7 @@ int ext_load(const char *name, const char *path, int placeholder, char *reply, s
         return -1;
     }
     wlog("%s loaded from %s (on_load %.0f ms)%s", name, path, 1000 * (world_time() - t0), placeholder ? ", a placeholder" : "");
-    snprintf(reply, size, "loaded %s%s (on_load took %.0f ms)\n", name, placeholder ? " as a placeholder, with a road-works sign" : "",
+    snprintf(reply, size, "loaded %s%s (on_load took %.0f ms)\n", name, placeholder ? " as a placeholder, with a \"Claude at work\" sign" : "",
              1000 * (world_time() - t0));
     if (e->problem[0]) {   /* a world call failed, though nothing trapped: likely the reason it looks wrong */
         size_t used = strlen(reply);

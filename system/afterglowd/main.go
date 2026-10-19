@@ -49,6 +49,7 @@ func main() {
 	go s.showStatus("/run/afterglow/status/30-claude")
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", s)
+	mux.HandleFunc("/status", s.serveStatus)
 	srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	klog("version %s serving MCP on %s/mcp", version, *listen)
 	if err := srv.ListenAndServe(); err != nil {
@@ -58,8 +59,8 @@ func main() {
 }
 
 // showStatus keeps afterglowd's line on the headset's status screen (system/init/status.c) current:
-// whether a computer is paired, and which client last connected. Pairing only writes the token
-// file, so it's checked every couple of seconds.
+// whether a computer is paired, which client last connected, and what Claude is doing. Pairing only
+// writes the token file, so it's checked every couple of seconds.
 func (s *server) showStatus(path string) {
 	shown := ""
 	for {
@@ -69,6 +70,9 @@ func (s *server) showStatus(path string) {
 		}
 		if client, _ := s.client.Load().(string); client != "" {
 			text = client + " connected"
+		}
+		if doing, _ := s.doing.Load().(activity); doing.text != "" && time.Since(doing.when) < 30*time.Second {
+			text = doing.text
 		}
 		// Written aside and renamed into place; the status screen skips names starting with a dot
 		temp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path))

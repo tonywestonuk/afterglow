@@ -388,3 +388,28 @@ func TestSlowGeneration(t *testing.T) {
 		t.Errorf("the generator was asked %d times, want 1", requests)
 	}
 }
+
+func TestStatus(t *testing.T) {
+	s := newTestServer(t)
+	post := func(body string, auth bool) int {
+		req := httptest.NewRequest(http.MethodPost, "/status", strings.NewReader(body))
+		if auth {
+			req.Header.Set("Authorization", "Bearer "+testToken)
+		}
+		rec := httptest.NewRecorder()
+		s.serveStatus(rec, req)
+		return rec.Code
+	}
+	if code := post(`{"text":"Writing the cat"}`, false); code != http.StatusUnauthorized {
+		t.Errorf("without the token: HTTP %d", code)
+	}
+	if code := post(`{"text":"Writing\nthe   cat"}`, true); code != http.StatusNoContent {
+		t.Errorf("status: HTTP %d", code)
+	}
+	if doing, _ := s.doing.Load().(activity); doing.text != "Writing the cat" {
+		t.Errorf("status kept as %q", doing.text)
+	}
+	if code := post(`not json`, true); code != http.StatusBadRequest {
+		t.Errorf("bad body: HTTP %d", code)
+	}
+}

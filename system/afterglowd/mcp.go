@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // Protocol versions this server can speak, newest first. All of them are the same for a server
@@ -43,8 +44,8 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
   the head's turning is tracked).
 - Show something within seconds. When what's asked for will take you more than a minute to write,
   first load a placeholder under the same name (placeholder: true): 10-20 lines of shape() calls
-  roughly where the real thing will be, as big and in its main colours. The world stands a road-works
-  sign beside it. Then write the real version under the same name; it replaces the placeholder and
+  roughly where the real thing will be, as big and in its main colours. The world stands a "Claude at
+  work" sign beside it. Then write the real version under the same name; it replaces the placeholder and
   the sign. Tell the person what's coming.
 - To change an extension, send edits (old and new text), not the whole source again.
 - One extension per thing that changes on its own (the dog, the cat, the ducks, the village): loading
@@ -84,6 +85,39 @@ type server struct {
 	tokenFile string
 	tools     []tool
 	client    atomic.Value // name of the last client to connect, for the status screen
+	doing     atomic.Value // activity: what Claude says it's doing (/status)
+}
+
+type activity struct {
+	text string
+	when time.Time
+}
+
+// serveStatus takes what Claude is doing, POSTed as {"text": ...} by tools/claude_status_hook.py
+// (Claude Code's hooks, on the computer), and shows it in the world and on the status screen.
+func (s *server) serveStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Origin") != "" {
+		http.Error(w, "requests from web pages are not accepted", http.StatusForbidden)
+		return
+	}
+	if status, msg := s.authorize(r); status != http.StatusOK {
+		http.Error(w, msg, status)
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if r.Method != http.MethodPost || json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body) != nil {
+		http.Error(w, `POST {"text": "what Claude is doing"}`, http.StatusBadRequest)
+		return
+	}
+	text := strings.Join(strings.Fields(strings.ToValidUTF8(body.Text, "")), " ") // one line
+	if len(text) > 300 {
+		text = strings.ToValidUTF8(text[:300], "") + "…"
+	}
+	s.doing.Store(activity{text, time.Now()})
+	worldCommand("status "+text, time.Second) // nothing to do if the world isn't running
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
