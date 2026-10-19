@@ -5,8 +5,22 @@
 #   docker run --rm -v "$PWD":/work afterglow-userland      # copies the results to out/third_party/
 FROM --platform=linux/arm64 alpine:3.22
 
-RUN apk add --no-cache build-base linux-headers pkgconf curl go \
+RUN apk add --no-cache build-base linux-headers pkgconf curl xz go \
         libnl3-dev libnl3-static openssl-dev openssl-libs-static
+
+# e2fsprogs 1.47.4 (GPL-2.0; libraries LGPL/BSD/MIT): mke2fs and e2fsck for afterglow's storage.
+# Upstream release; signature checked 2026-10-19 against Theodore Ts'o's key
+# 3AB057B7E78D945C8C5591FBD36F769BC11804F0 (signing subkey 2B69B954DBFE0879288137C9F2F95956950D81A3).
+RUN curl -fsSL -o /tmp/e2fs.tar.xz https://mirrors.edge.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v1.47.4/e2fsprogs-1.47.4.tar.xz \
+    && echo "fd5bf388cbdbe006a3d3b318d983b2948382440acc85a87f1e7d108653e8db0b  /tmp/e2fs.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/e2fs.tar.xz -C /tmp && cd /tmp/e2fsprogs-1.47.4 \
+    && ./configure --disable-nls --disable-fuse2fs --disable-uuidd --disable-fsck \
+           --enable-libuuid --enable-libblkid LDFLAGS=-static > /dev/null \
+    && make -j"$(nproc)" > /dev/null \
+    && mkdir -p /opt/out/bin /opt/out/share/licenses/e2fsprogs \
+    && install -s -m 0755 misc/mke2fs e2fsck/e2fsck /opt/out/bin/ \
+    && cp NOTICE /opt/out/share/licenses/e2fsprogs/ \
+    && cd / && rm -rf /tmp/e2fs*
 
 # BusyBox 1.37.0 (GPL-2.0) for the shell and its tools: the upstream release as mirrored by Debian
 # (busybox.net is often unreachable). Built on musl, whose resolver reads /etc/resolv.conf itself; a

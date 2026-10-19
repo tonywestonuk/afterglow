@@ -18,11 +18,11 @@ rm -rf "$ROOT"
 mkdir -p "$ROOT"/{dev,proc,sys,tmp,afterglow,bin,sbin,usr/bin,usr/sbin,usr/share}
 
 # Third-party programs built from upstream source (system/third_party), with their licences. BusyBox
-# is one binary with a link per applet.
+# is one binary with a link per applet, except where a full program replaces the applet (mke2fs).
 install -m 0755 "$THIRD"/bin/* "$ROOT/bin/"
 cp -r "$THIRD/share/licenses" "$ROOT/usr/share/"
 while read -r applet; do
-    [ "$applet" = /bin/busybox ] || ln -sf /bin/busybox "$ROOT$applet"
+    [ "$applet" = /bin/busybox ] || [ -e "$THIRD/bin/${applet##*/}" ] || ln -sf /bin/busybox "$ROOT$applet"
 done < "$THIRD/share/busybox/busybox.links"
 
 # zstd's decompressor only; its assembly fast path is x86-only
@@ -51,6 +51,9 @@ install -m 0755 /work/system/scripts/*.sh "$ROOT/afterglow/"
 install -m 0755 "$OUT"/tools/* "$ROOT/bin/"
 install -m 0755 "$AFTERGLOWD" "$ROOT/bin/"
 
-# Uncompressed cpio: the animation is already zstd-compressed
-(cd "$ROOT" && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --quiet) > "$OUT/initramfs.cpio"
-ls -l "$OUT/init" "$OUT/initramfs.cpio"
+# gzip-compressed: the headset's bootloader fails to boot an image whose ramdisk is much over 38 MiB
+# (38.4 MiB booted; 39.8 MiB came straight back to fastboot, which then needed a power cycle). The
+# animation is already compressed, but the programs shrink by more than half.
+rm -f "$OUT/initramfs.cpio"
+(cd "$ROOT" && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --quiet) | gzip -9 -n > "$OUT/initramfs.cpio.gz"
+ls -l "$OUT/init" "$OUT/initramfs.cpio.gz"

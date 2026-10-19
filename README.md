@@ -34,6 +34,8 @@ Done so far:
   ([how](docs/hardware.md#subsystems-and-wi-fi-without-android)).
 - **`afterglowd`, an MCP server on the headset**: Claude Code on a Mac runs commands, edits files, reads
   logs and sees the displays over Wi-Fi, paired over USB ([system/afterglowd](system/afterglowd/README.md)).
+- **Its own storage**, on the spare slot's system partition: the headset remembers its Wi-Fi network and
+  its pairing across restarts ([docs/storage.md](docs/storage.md)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 

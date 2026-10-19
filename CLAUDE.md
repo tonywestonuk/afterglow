@@ -16,6 +16,10 @@ These are a real person's device with irreplaceable per-device data. Ask before 
 Never write `persist`, `private`, `vision`, `devinfo`, `modemst1/2`, `fsg`, `fsc`. Test kernels and images
 with `fastboot boot` (RAM only). Back up before anything new (`tools/backup_partitions.sh`).
 
+On the reference headset, `system_b` is afterglow's storage (formatted 2026-10-19 with the user's
+approval, [docs/storage.md](docs/storage.md)), mounted at `/storage`: files there may be written freely.
+Formatting or restoring the partition itself still needs asking.
+
 Never commit Meta's firmware, partition images, backups or third-party binaries (see `.gitignore`), and
 never put a device serial number in the repo.
 
@@ -23,6 +27,11 @@ never put a device serial number in the repo.
 
 - Use `tools/platform-tools-dl/platform-tools/{adb,fastboot}` (current release). Old fastboot builds
   stall at `Sending` and leave the bootloader stuck until the headset is restarted.
+- The bootloader fails to boot an image whose ramdisk is much over 38 MiB (keep it gzipped, as
+  `system/build.sh` does), and after a failed boot or an aborted transfer it stops answering on USB.
+  Only a power cycle fixes that: ask the user to hold power ~15 s, then Volume Down + Power.
+- To restart from afterglow: `restart bootloader` (shell or afterglowd's `run`), or `--send bootloader`
+  on the console's first port.
 - When the headset shows its fastboot menu, tell the user **not to select anything**; one option is
   Factory Reset.
 - The headset suspends when not worn. Long transfers need a wake lock

@@ -5,6 +5,7 @@
  *   ttyGS0  the kernel log streams out; lines typed in are commands (see run_command())
  *   ttyGS1  a shell (BusyBox), which init starts and restarts
  */
+#define _GNU_SOURCE   /* dup3 */
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -95,6 +96,21 @@ static void run_command(const char *cmd)
         reply("unknown command; try help\r\n");
 }
 
+/*
+ * When the computer goes away (cable pulled, its port powered off), the kernel hangs the port up:
+ * from then on reads return 0 and writes fail. Open it afresh in place (dup3 onto the same number),
+ * so the log thread's writes go to the new one too.
+ */
+static void reopen_tty(void)
+{
+    int fd = open("/dev/ttyGS0", O_RDWR | O_NOCTTY | O_CLOEXEC);
+    if (fd < 0)
+        return;
+    if (dup3(fd, tty, O_CLOEXEC) < 0)
+        klog("usb: reopen ttyGS0: %s", strerror(errno));
+    close(fd);
+}
+
 static void *read_commands(void *arg)
 {
     (void)arg;
@@ -103,8 +119,14 @@ static void *read_commands(void *arg)
     for (;;) {
         char c;
         ssize_t n = read(tty, &c, 1);
-        if (n <= 0) {
-            if (n < 0 && errno != EINTR)
+        if (n == 0 || (n < 0 && errno == EIO)) {   /* hung up */
+            sleep(1);
+            reopen_tty();
+            len = 0;
+            continue;
+        }
+        if (n < 0) {
+            if (errno != EINTR)
                 sleep(1);   /* not connected yet */
             continue;
         }

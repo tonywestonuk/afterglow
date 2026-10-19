@@ -6,6 +6,7 @@
 # Development helper for afterglow's USB shell:  sh /afterglow/bringup.sh STEP...
 #   mounts   modem (FAT) at /vendor/firmware_mnt, system at /android, private at /persist
 #   android  paths Android binaries expect (/system, /apex, /vendor/*), /data in RAM
+#   storage  afterglow's own storage at /storage (kept across restarts), if the headset has it
 #   ssr      a crashing subsystem restarts on its own instead of restarting the headset
 #   adsp     audio DSP (sound card)
 #   gpu      Adreno 540 (microcode and zap shader load on first open)
@@ -96,6 +97,29 @@ android() {
     # (tftp_server) can't answer the modem, and the modem's Wi-Fi user-PD never gets its files.
     /vendor/bin/irsc_util /vendor/etc/sec_config && log "IPC Router security rules loaded"
     log "android paths ready (/data is RAM)"
+}
+
+# afterglow's own storage, kept across restarts: the spare slot's system partition, formatted ext4 with
+# the label "afterglow" by format_storage.sh (docs/storage.md). It's used only if it carries that label,
+# so a headset whose spare slot still holds Android is never touched; then everything stays in RAM.
+# Checked with e2fsck first, as any Linux system checks its filesystems.
+storage() {
+    mounted /storage && return 0
+    other=$([ "$slot" = _a ] && echo _b || echo _a)
+    part_node "system$other" || return 1
+    if ! blkid "/dev/system$other" | grep -q 'LABEL="afterglow"'; then
+        log "no afterglow storage (system$other isn't labelled afterglow): settings stay in RAM"
+        return 0
+    fi
+    e2fsck -p "/dev/system$other" > /tmp/e2fsck.log 2>&1
+    rc=$?
+    if [ $rc -gt 2 ]; then   # 1, 2: problems found and fixed
+        log "storage: e2fsck couldn't fix system$other by itself (exit $rc, /tmp/e2fsck.log): not mounted"
+        return 0
+    fi
+    mkdir -p /storage
+    mount -t ext4 -o noatime,nodev,nosuid "/dev/system$other" /storage || return 1
+    log "storage: system$other at /storage, $(df -h /storage | awk 'NR == 2 { print $4 }') free"
 }
 
 # The tree tftp_server serves the DSPs. Android's points their writable folders at /persist, which is
@@ -209,7 +233,8 @@ wlan() {
 }
 
 # afterglow's own Wi-Fi client: upstream wpa_supplicant (system/third_party; Android's needs Android's
-# service managers) and BusyBox's DHCP client. Networks are added with wifi.sh and kept in RAM.
+# service managers) and BusyBox's DHCP client. Networks are added with wifi.sh and kept in /storage
+# (or in RAM, without storage), so the headset reconnects by itself after a restart.
 wifi() {
     i=0
     until [ -e /sys/class/net/wlan0 ]; do   # the driver makes it once the firmware is ready
@@ -218,10 +243,15 @@ wifi() {
         sleep 1
     done
     mkdir -p /var/run /etc
-    [ -e /tmp/wpa_supplicant.conf ] ||
-        printf 'ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n' > /tmp/wpa_supplicant.conf
+    conf=/tmp/wpa_supplicant.conf
+    if mounted /storage; then
+        mkdir -p /storage/wifi && chmod 0700 /storage/wifi
+        conf=/storage/wifi/wpa_supplicant.conf
+    fi
+    [ -e $conf ] || printf 'ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n' > $conf
+    chmod 0600 $conf
     ip link set wlan0 up
-    daemon wpa_supplicant /bin/wpa_supplicant -i wlan0 -D nl80211 -c /tmp/wpa_supplicant.conf
+    daemon wpa_supplicant /bin/wpa_supplicant -i wlan0 -D nl80211 -c $conf
     daemon udhcpc udhcpc -f -i wlan0 -A 3 -x hostname:afterglow -s /afterglow/udhcpc.sh
     i=0
     until [ -S /var/run/wpa_supplicant/wlan0 ]; do   # so wifi.sh works as soon as this returns
@@ -232,19 +262,28 @@ wifi() {
 }
 
 # afterglow's MCP server (system/afterglowd), on port 7070 and as afterglow.local. It answers only
-# requests carrying the token tools/console.py --pair puts in /run/afterglowd over USB.
+# requests carrying the token tools/console.py --pair puts in /run/afterglowd over USB; with storage,
+# that's a link to /storage/afterglowd, so the pairing survives restarts.
 afterglowd() {
-    mkdir -p /run/afterglowd && chmod 0700 /run/afterglowd
+    mkdir -p /run
+    if mounted /storage; then
+        mkdir -p /storage/afterglowd && chmod 0700 /storage/afterglowd
+        [ -e /run/afterglowd ] || ln -s /storage/afterglowd /run/afterglowd
+    else
+        mkdir -p /run/afterglowd && chmod 0700 /run/afterglowd
+    fi
     daemon afterglowd /bin/afterglowd
 }
 
-[ $# -gt 0 ] || { sed -n '6,21p' "$0"; exit 1; }
+[ $# -gt 0 ] || { sed -n '6,22p' "$0"; exit 1; }
 for step in "$@"; do
-    [ "$step" = all ] && set -- mounts android ssr adsp gpu efs tftp pdmapper cnss permgr wlan wifi afterglowd
+    [ "$step" = all ] &&
+        set -- mounts android storage ssr adsp gpu efs tftp pdmapper cnss permgr wlan wifi afterglowd
 done
 for step in "$@"; do
     case $step in
-        mounts | android | ssr | adsp | gpu | efs | tftp | pdmapper | cnss | permgr | modem | wlan | wifi | afterglowd)
+        mounts | android | storage | ssr | adsp | gpu | efs | tftp | pdmapper | cnss | permgr | modem | wlan | \
+            wifi | afterglowd)
             $step || { log "$step failed"; exit 1; } ;;
         *) echo "unknown step: $step"; exit 1 ;;
     esac

@@ -16,9 +16,11 @@ MCP server through which Claude Code on a computer works on the headset.
 | `tests/display_test.c` | Runs the real drawing code off-device against a fake framebuffer and writes what the viewer would see |
 | `tools/logdw.c` | Forwards Android programs' log messages to the kernel log (a stand-in for Android's `logd`) |
 | `scripts/bringup.sh` | Starts the audio DSP, GPU, modem DSP and Wi-Fi as Android would, with the headset's own firmware ([findings](../docs/hardware.md#subsystems-and-wi-fi-without-android)) |
-| `scripts/wifi.sh`, `scripts/udhcpc.sh` | Scan and join Wi-Fi networks, set the country; apply DHCP leases |
+| `scripts/wifi.sh`, `scripts/udhcpc.sh` | Scan, join and forget Wi-Fi networks, set the country; apply DHCP leases |
+| `scripts/format_storage.sh` | Make afterglow's storage on the spare slot's system partition ([docs/storage.md](../docs/storage.md)) |
+| `tools/restart.c` | `restart [bootloader]` from the shell or afterglowd (BusyBox's `reboot` signals PID 1, which /init doesn't handle) |
 | `afterglowd/` | The MCP server: shell, files, screenshots, logs, status over Wi-Fi ([README](afterglowd/README.md)) |
-| `third_party/` | BusyBox and wpa_supplicant from upstream source, static on musl (native arm64 container), and the Go toolchain |
+| `third_party/` | BusyBox, wpa_supplicant and e2fsprogs (mke2fs, e2fsck) from upstream source, static on musl (native arm64 container), and the Go toolchain |
 | `build.sh` | Builds `/init` (static aarch64, with zstd's decompressor), the tools, and the initramfs |
 
 ## Kernel command line options
@@ -44,7 +46,7 @@ docker run --rm -v "$PWD":/work afterglow-userland /work/system/afterglowd/build
 docker run --rm -v "$PWD":/work afterglow-kernel-build /work/system/build.sh /work/out/boot3d/boot.anim
 docker run --rm -v "$PWD":/work afterglow-kernel-build /work/kernel/build/make_bootimg.sh \
     /work/firmware/49845030443200410/boot.img /work/out/kernel/Image.gz-dtb /work/out/system/boot.img \
-    /work/out/system/initramfs.cpio "afterglow_initramfs afterglow.roll_left_deg=1 afterglow.roll_right_deg=2"
+    /work/out/system/initramfs.cpio.gz "afterglow_initramfs afterglow.roll_left_deg=1 afterglow.roll_right_deg=2"
 fastboot boot out/system/boot.img     # RAM only; hold power ~10 s to get back to Android
 ```
 
@@ -83,7 +85,9 @@ tools/console.py --pair                                  # let this computer's C
 ```
 
 `--wifi` asks on the computer, so the password never appears on a command line, and sends it to the
-headset hex-encoded; the headset keeps it in RAM only, so it's gone after a restart.
+headset as the WPA2 key derived from it, never the password itself. With afterglow storage
+([docs/storage.md](../docs/storage.md)) the network is saved and the headset reconnects by itself
+after a restart; without it, it's kept in RAM until then.
 `wifi.sh scan` lists the networks in range. Single steps (`bringup.sh mounts android ...`) are there
 for debugging; `sh /afterglow/bringup.sh` lists them.
 

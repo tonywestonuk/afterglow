@@ -23,10 +23,11 @@ const maxRequest = 64 << 20 // a write_file of up to ~48 MB, base64-encoded
 const instructions = `This is a Meta Quest 1 headset running afterglow, an open OS: Meta's Linux 4.4 kernel with
 afterglow's own userspace (BusyBox, no Android). You are root on it.
 
-- Storage: everything outside mounted partitions is RAM and is lost at restart. The headset's own
-  partitions are mounted read-only. Never write to a partition or block device: persist, private,
-  vision, devinfo, modemst1/2, fsg and fsc hold irreplaceable per-device data. Ask the person
-  before restarting the headset; they may be wearing it.
+- Storage: /storage, if present, is afterglow's own and is kept across restarts (ext4 on the spare
+  slot's system partition). Everything else outside mounted partitions is RAM and is lost at
+  restart. The headset's own partitions are mounted read-only. Never write to a partition or block
+  device: persist, private, vision, devinfo, modemst1/2, fsg and fsc hold irreplaceable per-device
+  data. Ask the person before restarting the headset; they may be wearing it.
 - Displays: two panels, one 2880x1600 framebuffer (/dev/fb0). The screenshot tool shows them as
   the wearer sees them.
 - Hardware bring-up: sh /afterglow/bringup.sh (no arguments lists the steps). Wi-Fi:

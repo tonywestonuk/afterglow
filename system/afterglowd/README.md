@@ -20,8 +20,9 @@ tools/console.py --pair                                 # trust this computer; t
 local scope), so start a new Claude Code session there and its tools appear as `afterglow`. Claude Code
 asks before each tool call unless you allow them.
 
-The headset keeps everything in RAM for now, so after a restart: bring-up, Wi-Fi and `--pair` again.
-The token and Claude Code's settings stay the same, so nothing changes on the computer.
+With afterglow storage ([docs/storage.md](../../docs/storage.md)) the headset keeps the token and its
+Wi-Fi networks, so after a restart only the bring-up is needed: it reconnects and Claude Code finds it
+again (measured: answering 23 s after boot). Without storage, `--wifi` and `--pair` again.
 
 ## Tools
 
@@ -46,7 +47,8 @@ client does.
 - **Pairing over USB.** Every request needs a bearer token. `tools/console.py --pair` makes it once
   on the computer (`~/.config/afterglow/token`, mode 0600) and puts it on the headset over the USB
   serial console, which only someone holding the headset and cable can use. The headset keeps it in
-  RAM (`/run/afterglowd/token`); without it, afterglowd refuses everything (HTTP 503).
+  `/run/afterglowd/token` (on `/storage` when it has afterglow storage); without it, afterglowd
+  refuses everything (HTTP 503).
 - **No browsers.** Requests with an `Origin` header are refused, so a web page can't reach the headset
   through someone's browser (including by DNS rebinding).
 - **Plain HTTP on the local network.** The token is sent unencrypted, so anyone who can capture the

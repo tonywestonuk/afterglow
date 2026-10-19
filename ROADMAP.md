@@ -55,7 +55,10 @@ Design principles:
 - [x] Start the Snapdragon's subsystems and load their firmware (adsp, modem, a540_zap): the key to
       Wi-Fi, audio and the GPU ([how](docs/hardware.md#subsystems-and-wi-fi-without-android))
 - [x] Wi-Fi: scan, join (WPA2), DHCP, DNS, with upstream `wpa_supplicant`
-- [ ] Keep settings (Wi-Fi networks, country) across restarts: needs a writable afterglow partition
+- [x] Keep settings (Wi-Fi networks, pairing) across restarts: `/storage` on the spare slot's system
+      partition ([docs/storage.md](docs/storage.md))
+- [ ] Start afterglow's services at boot (today `bringup.sh all` is run over USB), and stop the boot
+      animation once the system is up (it keeps ~1.6 cores busy)
 - [ ] Replace Qualcomm's Android helper programs with open ones (linux-msm's `pd-mapper`,
       `tqftpserv`, `rmtfs`), so afterglow doesn't need the `system` partition. They use QRTR sockets;
       Meta's kernel has the older IPC Router (`CONFIG_IPC_ROUTER`), so they'd need porting

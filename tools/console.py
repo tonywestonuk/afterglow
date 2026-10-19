@@ -17,6 +17,7 @@ import argparse
 import base64
 import getpass
 import glob
+import hashlib
 import locale
 import os
 import re
@@ -107,8 +108,8 @@ def resolve(host, timeout=5):
 def pair(fd):
     """Pair this computer with afterglowd on the headset, over USB: the link only someone holding the
     headset can use. The token is made once and kept in ~/.config/afterglow/token; the headset keeps
-    it in RAM only, so pair again after it restarts. The first time, Claude Code is told about the
-    server (for the project in the current directory).
+    it in /storage if it has afterglow storage (otherwise in RAM, so pair again after it restarts). The
+    first time, Claude Code is told about the server (for the project in the current directory).
     """
     path = os.path.expanduser("~/.config/afterglow/token")
     if not os.path.exists(path):
@@ -119,7 +120,10 @@ def pair(fd):
         token = f.read().strip()
     if run(fd, f"(umask 077; mkdir -p /run/afterglowd; echo {token} > /run/afterglowd/token)", 30):
         return 1
-    print("the headset now accepts this computer's token")
+    lines = []
+    run(fd, "readlink /run/afterglowd", 30, lines.append)
+    kept = "kept across restarts" if any(l.startswith("/storage/") for l in lines) else "until it restarts"
+    print(f"the headset now accepts this computer's token ({kept})")
 
     # afterglow.local (mDNS) survives DHCP giving the headset a new address; fall back to the address
     host = "afterglow.local"
@@ -148,12 +152,16 @@ def pair(fd):
 def join_wifi(fd):
     """Ask for a network and its password on this computer, then join it on the headset.
 
-    They travel to the headset's shell hex-encoded (so any characters survive) and are kept only in
-    its RAM. The country decides which channels and transmit power the radio may use.
+    The headset gets the WPA2 key derived from the password (PBKDF2, as every WPA2 device computes
+    it), not the password, and saves it with the network: in /storage when it has afterglow storage,
+    so it reconnects by itself after a restart. The country decides which channels and transmit power
+    the radio may use. WPA3-only networks need the password itself: wifi.sh join on the headset.
     """
     region = (locale.getlocale()[0] or "").partition("_")[2][:2].upper()
     ssid = input("Wi-Fi network name: ")
     password = getpass.getpass("Password (empty for an open network): ")
+    if password and not 8 <= len(password.encode()) <= 63:
+        sys.exit("a WPA2 password has 8 to 63 characters")
     country = input(f"Country code{f' [{region}]' if region else ''}: ").strip() or region
     if country:
         if not re.fullmatch(r"[A-Za-z]{2}", country):
@@ -161,7 +169,10 @@ def join_wifi(fd):
         status = run(fd, f"sh /afterglow/wifi.sh country {country}", 30)
         if status:
             return status
-    return run(fd, f"sh /afterglow/wifi.sh join {ssid.encode().hex()} {password.encode().hex()}", 60)
+    if not password:
+        return run(fd, f"sh /afterglow/wifi.sh join {ssid.encode().hex()}", 60)
+    key = hashlib.pbkdf2_hmac("sha1", password.encode(), ssid.encode(), 4096, 32).hex()
+    return run(fd, f"sh /afterglow/wifi.sh join-key {ssid.encode().hex()} {key}", 60)
 
 
 def main():

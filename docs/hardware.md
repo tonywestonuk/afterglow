@@ -53,6 +53,16 @@ Linux console enabled: false
 - Anti-rollback index 1 and 2 are `1596585601` (2020-08-05). That is why 2020-era signed firmware is
   still accepted, and therefore why the unlock exploit works.
 - `Linux console enabled` may enable a kernel debug console; not yet investigated.
+- **Ramdisk size limit** (2026-10-19): an image whose ramdisk was 39.8 MiB was accepted (`Booting OKAY`)
+  but never ran: the headset came straight back to the fastboot menu. 38.4 MiB had booted, and the same
+  ramdisk gzipped (31.3 MiB) boots. The exact limit and its cause (probably the ramdisk overlapping
+  something the bootloader placed after it) are unverified.
+- **The bootloader stops answering after a failure.** After that failed boot, and after a `fastboot flash`
+  whose transfer was aborted, the menu stayed on screen but fastboot commands hung, even after replugging.
+  Holding power ~15 s and then Volume Down + Power fixed it every time.
+- `fastboot flash system_b` of a 2.5 GB ext4 image (sent as a 1.4 MB sparse image) wrote the filesystem,
+  but the transfer ended with `usb_read failed with status e00002eb` (I/O aborted) during the
+  bootloader's write ([docs/storage.md](storage.md)).
 
 ## Display (framebuffer)
 
@@ -85,6 +95,11 @@ Pixel format: 32 bpp with red in bits 0–7, green 8–15, blue 16–23 (RGBA by
 One USB device controller, `a800000.dwc3` (Synopsys DWC3). Android configures it through configfs
 (`androidboot.configfs=true`); afterglow does the same for its serial console. The stock kernel has
 NCM, MTP, FunctionFS (adb) and Qualcomm functions but no ACM serial; afterglow's kernel adds it.
+
+When the cable is pulled (or the Type-C link drops: seen once, `usbpd usbpd0: USB Type-C disconnect`),
+the kernel hangs up the gadget's serial ports: reads return 0 and writes fail until the port is opened
+again. afterglow's `/init` reopens its console port and restarts the shell, so both come back by
+themselves (tested 2026-10-19 by detaching and reattaching the gadget's UDC).
 
 ## Buttons
 
