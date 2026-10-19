@@ -38,8 +38,9 @@ Done so far:
   its pairing across restarts ([docs/storage.md](docs/storage.md)).
 - **It comes up by itself**: about 30 s after `fastboot boot` it's on Wi-Fi with afterglowd answering, and
   the boot animation gives way to a status screen.
-- **3D on the GPU**: Qualcomm's OpenGL ES 3.2 driver runs on the Adreno 540 under afterglow. Next: apps
-  as live worlds that Claude extends while they run ([docs/apps.md](docs/apps.md)).
+- **3D on the GPU, and a world Claude extends while it runs**: Qualcomm's OpenGL ES 3.2 driver on the
+  Adreno 540; C extensions compiled to WebAssembly on the headset and swapped into the running world in
+  under a second, with crashes contained and every change undoable ([docs/apps.md](docs/apps.md)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 
@@ -73,6 +74,7 @@ Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs
 | `system/` | afterglow's `/init` (boot animation, display, buttons, calibration), subsystem and Wi-Fi bring-up, third-party userspace build |
 | `brand/` | Logo, the 3D boot animation scene (Blender Python), fonts |
 | `tools/pack_anim.py`, `tools/make_calibration_frames.py` | Pack rendered frames for the headset; calibration test patterns |
+| `tools/console.py`, `tools/push_file.py` | USB console, shell, Wi-Fi setup and pairing; large files to the headset over Wi-Fi |
 | `docs/` | Hardware notes and procedures |
 
 ## Licence

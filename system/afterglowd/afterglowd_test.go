@@ -20,7 +20,7 @@ func newTestServer(t *testing.T) *server {
 	if err := os.WriteFile(path, []byte(testToken+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return &server{tokenFile: path, tools: tools()}
+	return &server{tokenFile: path, tools: append(tools(), worldTools()...)}
 }
 
 // post sends one JSON-RPC message and returns the HTTP status and the decoded response.
@@ -94,7 +94,8 @@ func TestHandshake(t *testing.T) {
 	for _, tl := range resp["result"].(map[string]any)["tools"].([]any) {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
-	if got := strings.Join(names, " "); got != "run read_file write_file list_dir status logs screenshot" {
+	if got := strings.Join(names, " "); got != "run read_file write_file list_dir status logs screenshot "+
+		"load_extension unload_extension list_extensions start_world stop_world" {
 		t.Errorf("tools: %s", got)
 	}
 	_, resp = post(t, s, `{"jsonrpc":"2.0","id":4,"method":"no/such"}`, nil)
@@ -191,5 +192,19 @@ func TestMDNS(t *testing.T) {
 	other := append([]byte{0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}, encodeName("printer.local")...)
 	if resp, _ := mdnsAnswer(append(other, 0, 1, 0, 1), "afterglow.local.", ip, false); resp != nil {
 		t.Errorf("answered for another host")
+	}
+}
+
+func TestExtensionArguments(t *testing.T) {
+	s := newTestServer(t)
+	for _, args := range []map[string]any{
+		{"name": "Grass", "source": "x"},               // upper case
+		{"name": "../etc", "source": "x"},              // a path
+		{"name": "grass"},                              // neither source nor version
+		{"name": "grass", "source": "x", "version": 2}, // both
+	} {
+		if out, isErr := call(t, s, "load_extension", args); !isErr {
+			t.Errorf("load_extension %v accepted: %s", args, out)
+		}
 	}
 }

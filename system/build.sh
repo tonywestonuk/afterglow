@@ -12,8 +12,10 @@ ZSTD=/opt/zstd/lib
 STB=/opt/stb
 THIRD=/work/out/third_party
 AFTERGLOWD=/work/out/afterglowd/afterglowd
+WORLD=/work/out/world/world
 [ -x "$THIRD/bin/busybox" ] || { echo "no $THIRD: build system/third_party first (see system/README.md)" >&2; exit 1; }
 [ -x "$AFTERGLOWD" ] || { echo "no $AFTERGLOWD: build it first (see system/README.md)" >&2; exit 1; }
+[ -x "$WORLD" ] || { echo "no $WORLD: build it first (system/world/README.md)" >&2; exit 1; }
 
 rm -rf "$ROOT"
 mkdir -p "$ROOT"/{dev,proc,sys,tmp,afterglow,bin,sbin,usr/bin,usr/sbin,usr/share}
@@ -57,6 +59,10 @@ sed -n '/^This software is available under 2 licenses/,$p' "$STB/stb_truetype.h"
 install -m 0755 /work/system/scripts/*.sh "$ROOT/afterglow/"
 install -m 0755 "$OUT"/tools/* "$ROOT/bin/"
 install -m 0755 "$AFTERGLOWD" "$ROOT/bin/"
+# The world (built with the Android NDK) and the header its extensions are written against
+install -m 0755 "$WORLD" "$ROOT/afterglow/world"
+mkdir -p "$ROOT/afterglow/sdk"
+cp /work/system/world/sdk/afterglow.h "$ROOT/afterglow/sdk/"
 
 # gzip-compressed: the headset's bootloader fails to boot an image whose ramdisk is much over 38 MiB
 # (38.4 MiB booted; 39.8 MiB came straight back to fastboot, which then needed a power cycle). The

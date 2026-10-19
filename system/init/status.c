@@ -2,7 +2,8 @@
  * The status screen: what afterglow is doing, for whoever wears the headset. Each line comes from a
  * file in /run/afterglow/status, read in name order, holding "label<TAB>text": whatever knows writes
  * its own (the bring-up, the DHCP client, afterglowd). Redrawn when they change. Text is Montserrat,
- * rendered with stb_truetype; both eyes see the same image, so it appears far away.
+ * rendered with stb_truetype; both eyes see the same image, so it appears far away. While another
+ * program owns the display (the world), it keeps off it.
  */
 #include <dirent.h>
 #include <math.h>
@@ -10,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "afterglow.h"
 #include "display.h"
@@ -122,6 +124,21 @@ static void render(uint8_t *rgb, const stbtt_fontinfo *font, const char *status)
     }
 }
 
+/* Whether another program owns the display: the world writes its pid to /run/afterglow/display-owner */
+static int display_taken(void)
+{
+    FILE *f = fopen("/run/afterglow/display-owner", "r");
+    int pid = 0;
+    if (!f)
+        return 0;
+    if (fscanf(f, "%d", &pid) != 1)
+        pid = 0;
+    fclose(f);
+    char proc[32];
+    snprintf(proc, sizeof(proc), "/proc/%d", pid);
+    return pid > 0 && access(proc, F_OK) == 0;
+}
+
 int status_run(struct fb *fb, const double roll[2], double deadline)
 {
     size_t size;
@@ -152,7 +169,9 @@ int status_run(struct fb *fb, const double roll[2], double deadline)
     char shown[4096] = "\x01", status[4096];   /* never matches, so the first pass draws */
     while (deadline <= 0 || now() < deadline) {
         read_status(status, sizeof(status));
-        if (strcmp(status, shown) != 0) {
+        if (display_taken()) {
+            strcpy(shown, "\x01");   /* draw again once it's given back */
+        } else if (strcmp(status, shown) != 0) {
             render(rgb, &font, status);
             uint8_t *page = fb_back(fb);
             memset(page, 0, (size_t)fb->fix.line_length * fb->var.yres);

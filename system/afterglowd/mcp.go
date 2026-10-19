@@ -34,6 +34,9 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
 - Hardware bring-up: sh /afterglow/bringup.sh (no arguments lists the steps). Wi-Fi:
   sh /afterglow/wifi.sh. Logs of daemons started by bringup.sh: /tmp/<name>.log.
 - Android's programs and firmware are on the read-only /system, /vendor and /vendor/firmware_mnt.
+- 3D: a world runs on the GPU (a wireframe floor to start with) and grows by extensions: C compiled to
+  WebAssembly on the headset and loaded while it runs (load_extension). Read /afterglow/sdk/afterglow.h
+  first; it's the whole API. Check results with screenshot.
 - Source and docs: https://github.com/tonywestonuk/afterglow`
 
 type request struct {
@@ -163,9 +166,13 @@ func (s *server) handle(req request) (any, *rpcError) {
 		}
 		content, err := s.tools[i].call(p.Arguments)
 		if err != nil {
-			// A failed tool is a result the model should see, not a protocol error
+			// A failed tool is a result the model should see, not a protocol error; a tool may give
+			// its own account of what went wrong (compiler messages, say)
 			klog("%s failed: %v", p.Name, err)
-			return map[string]any{"content": []any{text(err.Error())}, "isError": true}, nil
+			if content == nil {
+				content = []any{text(err.Error())}
+			}
+			return map[string]any{"content": content, "isError": true}, nil
 		}
 		return map[string]any{"content": content}, nil
 	}

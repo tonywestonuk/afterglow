@@ -20,7 +20,10 @@ the MCP server through which Claude Code on a computer works on the headset.
 | `scripts/wifi.sh`, `scripts/udhcpc.sh` | Scan, join and forget Wi-Fi networks, set the country; apply DHCP leases |
 | `scripts/format_storage.sh` | Make afterglow's storage on the spare slot's system partition ([docs/storage.md](../docs/storage.md)) |
 | `tools/restart.c` | `restart [bootloader]` from the shell or afterglowd (BusyBox's `reboot` signals PID 1, which /init doesn't handle) |
-| `afterglowd/` | The MCP server: shell, files, screenshots, logs, status over Wi-Fi ([README](afterglowd/README.md)) |
+| `afterglowd/` | The MCP server: shell, files, screenshots, logs, status, the world's extensions, over Wi-Fi ([README](afterglowd/README.md)) |
+| `world/` | The 3D world on the GPU, extended while it runs by WebAssembly extensions ([README](world/README.md)) |
+| `gpu/` | The first GPU probe: Qualcomm's OpenGL ES driver under afterglow ([README](gpu/README.md)) |
+| `scripts/wasm-cc.sh` | Compiles a world extension to WebAssembly with the compiler on `/storage/toolchain` |
 | `third_party/` | BusyBox, wpa_supplicant and e2fsprogs (mke2fs, e2fsck) from upstream source, static on musl (native arm64 container), and the Go toolchain |
 | `build.sh` | Builds `/init` (static aarch64, with zstd's decompressor), the tools, and the initramfs |
 
@@ -45,6 +48,7 @@ python3 tools/pack_anim.py out/boot3d/stereo out/boot3d/boot.anim --fps 36 --loo
 docker build --platform linux/arm64 -t afterglow-userland system/third_party
 docker run --rm -v "$PWD":/work afterglow-userland          # writes out/third_party
 docker run --rm -v "$PWD":/work afterglow-userland /work/system/afterglowd/build.sh
+system/world/build.sh                                       # Android NDK, on the Mac (world/README.md)
 docker run --rm -v "$PWD":/work afterglow-kernel-build /work/system/build.sh /work/out/boot3d/boot.anim
 docker run --rm -v "$PWD":/work afterglow-kernel-build /work/kernel/build/make_bootimg.sh \
     /work/firmware/49845030443200410/boot.img /work/out/kernel/Image.gz-dtb /work/out/system/boot.img \

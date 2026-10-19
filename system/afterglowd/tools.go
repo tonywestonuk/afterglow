@@ -425,7 +425,9 @@ func readTrim(path string) string {
 
 func status(args json.RawMessage) ([]any, error) {
 	var out strings.Builder
-	line := func(label, format string, v ...any) { fmt.Fprintf(&out, "%-12s "+format+"\n", append([]any{label + ":"}, v...)...) }
+	line := func(label, format string, v ...any) {
+		fmt.Fprintf(&out, "%-12s "+format+"\n", append([]any{label + ":"}, v...)...)
+	}
 
 	up, _ := strconv.ParseFloat(strings.Fields(readTrim("/proc/uptime") + " 0")[0], 64)
 	line("afterglow", "kernel %s, afterglowd %s, up %s", readTrim("/proc/sys/kernel/osrelease"), version,

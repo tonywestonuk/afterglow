@@ -40,7 +40,7 @@ func main() {
 	if *name != "" {
 		go advertise(*name)
 	}
-	s := &server{tokenFile: *tokenFile, tools: tools()}
+	s := &server{tokenFile: *tokenFile, tools: append(tools(), worldTools()...)}
 	go s.showStatus("/run/afterglow/status/30-claude")
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", s)

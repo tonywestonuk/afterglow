@@ -75,10 +75,13 @@ grass extension is compiled and linked in without the world stopping.
 
 - [x] 3D on the GPU: Qualcomm's OpenGL ES 3.2 driver runs under afterglow (stereo wireframe floor, 4 ms/frame)
 - [ ] Frames straight to the panels (today a 32 ms copy), centred on the lenses, distortion-corrected
-- [ ] The world: render loop, entities, versioned API (meshes, shaders, materials, input, time)
-- [ ] Extensions as WebAssembly (WAMR), with `on_load()`/`on_frame()`/`on_unload()`, hot-swapped
-      between frames; a crashing extension is disabled, not the world
-- [ ] afterglowd tools: `load_extension`, `list_extensions`, `undo`; versions kept on `/storage`
+- [x] The world: render loop, scene (meshes, shaders, objects), API in [`sdk/afterglow.h`](system/world/sdk/afterglow.h)
+- [x] Extensions as WebAssembly (WAMR), with `on_load()`/`on_frame()`/`on_unload()`, swapped while the
+      world runs; a crashing or looping extension is stopped and undone, not the world
+- [x] Compiled on the headset (clang in an Alpine root on `/storage`); afterglowd tools `load_extension`,
+      `unload_extension`, `list_extensions`, `start_world`, `stop_world`; versions kept on `/storage`
+- [ ] Input in the world API: buttons now, controllers and head pose later
+- [ ] Ahead-of-time compiled extensions (`wamrc`) for heavy per-frame code
 - [ ] Voice: "make the floor grass" said in the headset
 
 ## Phase 3 — Claude-native

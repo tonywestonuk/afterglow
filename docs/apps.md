@@ -1,6 +1,7 @@
 # Apps: live worlds that code is added to while they run
 
-Design agreed 2026-10-19. Status: the GPU part is proven (below); the rest is to be built.
+Design agreed 2026-10-19. Status: the world and its extensions work ([system/world](../system/world/README.md));
+frames straight to the panels, lens distortion, head tracking and voice are still to come.
 
 The goal, in one scene: a VR app starts with nothing but a floor of wireframe squares. The wearer says
 "make the floor grass", and a few moments later the floor is grass. Behind that, Claude wrote a grass
@@ -59,8 +60,18 @@ How:
 | **Getting frames onto the panels** | The probe copies a finished frame to the framebuffer with `glReadPixels`: 32 ms, far too slow for 72 Hz (13.9 ms per frame). The GPU needs to render straight into buffers the display shows (the display driver's overlay with ION buffers, or the framebuffer's own memory imported as an EGLImage) |
 | **Lens centring and distortion** | Each eye's projection must be centred on its lens (852,865 and 2028,865 on screen), and the image pre-warped for the lens; the roll correction (already per pixel on the CPU) moves into the same GPU pass |
 | **Head tracking** | The motion sensor is behind Meta's SyncBoss microcontroller; Meta's kernel has its driver, the data format needs working out. Without it the floor turns with your head |
-| **The world and extensions** | WAMR built for Android's C library; the world API; `load_extension` and friends in afterglowd |
 | **Voice** | The microphones (the audio DSP already runs) and speech-to-text, on the Mac at first |
 
-Order: the world and extensions can be built now on the GPU (shown flat, then with lens centring),
-while the display path and head tracking are worked out; voice last.
+| **Faster extensions** | They run in WAMR's fast interpreter (its JIT is x86-only). Ahead-of-time compilation with `wamrc`, which needs LLVM (already in the headset's compiler), would make heavy `on_frame()` code native |
+
+## Built 2026-10-19
+
+- **The world** (`system/world`): the render loop and scene on Qualcomm's driver, stereo views centred
+  on each lens and turned by each panel's roll, the built-in wireframe floor, frames to the panels
+  through double-buffered asynchronous readback (48 fps).
+- **Extensions**: WAMR 2.4.5 embedded; the API in `sdk/afterglow.h`; replacing, undoing and
+  recovering as described in [system/world](../system/world/README.md#how-extensions-behave).
+- **Compiled on the headset**: clang 20 and the WASI C library in an Alpine root on `/storage`, run with
+  `chroot`; 0.5 s per extension. Claude sends C source, never binaries, so any MCP client can do it.
+- **afterglowd tools**: `load_extension`, `unload_extension`, `list_extensions`, `start_world`,
+  `stop_world`; every version kept on storage.
