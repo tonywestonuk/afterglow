@@ -763,8 +763,10 @@ static void eye_view(int eye, float view_projection[16], float position[3])
     float cx = lens_x[eye] - eye * EYE_W, cy = H - lens_y;   /* OpenGL counts rows from the bottom */
     float l = -cx / FOCAL_PX * n, r = (EYE_W - cx) / FOCAL_PX * n;
     float b = -cy / FOCAL_PX * n, t = (H - cy) / FOCAL_PX * n;
-    float projection[16] = { 2 * n / (r - l), 0, 0, 0, 0, 2 * n / (t - b), 0, 0,
-                             (r + l) / (r - l), (t + b) / (t - b), -(f + n) / (f - n), -1, 0, 0, -2 * f * n / (f - n), 0 };
+    /* Mirrored left to right (x negated): the panels show the framebuffer turned 180°, and OpenGL's rows
+     * already run bottom-up, so a mirrored image copies to the framebuffer row for row, unchanged */
+    float projection[16] = { -2 * n / (r - l), 0, 0, 0, 0, 2 * n / (t - b), 0, 0,
+                             -(r + l) / (r - l), (t + b) / (t - b), -(f + n) / (f - n), -1, 0, 0, -2 * f * n / (f - n), 0 };
     const float *h = head_rotation;   /* columns: the head's right, up and back, in the world */
     for (int k = 0; k < 3; k++)
         position[k] = head_centre[k] + (eye ? 1 : -1) * IPD / 2 * h[k];
@@ -848,7 +850,7 @@ static void draw_eye(int eye, float time)
     float vp[16], eye_position[3], distance[MAX_OBJECTS];
     int order[MAX_OBJECTS], later = 0;
     eye_view(eye, vp, eye_position);
-    glViewport(eye * EYE_W, 0, EYE_W, H);
+    glViewport((1 - eye) * EYE_W, 0, EYE_W, H);   /* mirrored, so each eye's half swaps too */
     for (int i = 0; i < MAX_OBJECTS; i++) {
         struct object *o = &objects[i];
         struct mesh *m = o->used && o->visible ? mesh_get(o->mesh) : NULL;
@@ -922,27 +924,33 @@ static int display_open(void)
 
 /*
  * Show the frame just drawn. For now through memory: the GPU copies each frame into a buffer while the
- * CPU puts the previous one on screen (the panels show the framebuffer rotated 180°, so each
- * framebuffer row is OpenGL's bottom-up row of the same number, reversed). Rendering straight into
- * what the display scans out is still to come (docs/apps.md).
+ * CPU puts the previous one on screen. Frames are drawn mirrored (eye_view), so the copy is straight,
+ * row for row. Rendering straight into what the display scans out is still to come (docs/apps.md).
  */
+static double waiting_total, copying_total;   /* for the frame-rate report */
+
 static double present(unsigned frame)
 {
     double t0 = now();
     glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[frame & 1]);
     glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    /* Send this frame to the GPU now, so it draws while the previous one is copied and shown (the
+     * driver would otherwise hold it until the next call that waits, and the two would run in turn) */
+    glFlush();
     if (frame > 0) {
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[(frame + 1) & 1]);
         const uint32_t *src = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)W * H * 4, GL_MAP_READ_BIT);
+        double t1 = now();   /* mapping waits for the GPU to finish the frame */
+        waiting_total += t1 - t0;
         if (src) {
             int back = fb.pages == 2 ? fb.page ^ 1 : 0;
             uint8_t *page = fb.mem + (size_t)back * fb.stride * H;
-            for (int y = 0; y < H; y++) {
-                uint32_t *dst = (uint32_t *)(page + (size_t)y * fb.stride);
-                const uint32_t *row = src + (size_t)y * W;
-                for (int x = 0; x < W; x++)
-                    dst[W - 1 - x] = row[x];
-            }
+            if (fb.stride == (size_t)W * 4)
+                memcpy(page, src, (size_t)W * H * 4);
+            else
+                for (int y = 0; y < H; y++)
+                    memcpy(page + (size_t)y * fb.stride, src + (size_t)y * W, (size_t)W * 4);
+            copying_total += now() - t1;
             glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             fb.page = back;
             fb.var.yoffset = back * H;
@@ -1013,6 +1021,51 @@ static void control_poll(int listener)
     close(c);
 }
 
+/*
+ * The GPU's clock. Its governor (msm-adreno-tz) judges by how busy the GPU is, and while the CPU copies
+ * each frame the GPU sits idle often enough to stay at its lowest clock (257 MHz), well short of what
+ * scenes need. So the world holds it at full clock while it runs, unless the chip gets hot, and gives
+ * it back to the governor when it stops.
+ */
+#define GPU_LEVELS "/sys/class/kgsl/kgsl-3d0/min_pwrlevel"
+#define GPU_FAST "0"      /* 710 MHz */
+#define GPU_GOVERNED "6"  /* the lowest: the governor chooses */
+#define HOT_C 70.0        /* the hottest SoC sensor above which the governor gets it back */
+#define COOL_C 62.0
+
+static void gpu_floor(const char *level)
+{
+    int fd = open(GPU_LEVELS, O_WRONLY | O_CLOEXEC);
+    if (fd >= 0) {
+        if (write(fd, level, strlen(level)) < 0)
+            wlog("setting the GPU's clock: %s", strerror(errno));
+        close(fd);
+    }
+}
+
+/* The hottest of the SoC's temperature sensors (tsens), in C */
+static double soc_temperature(void)
+{
+    double hottest = 0;
+    for (int i = 0; i < 64; i++) {
+        char path[64], type[32] = "";
+        snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/type", i);
+        FILE *f = fopen(path, "r");
+        if (!f)
+            continue;
+        int is_tsens = fgets(type, sizeof(type), f) && strncmp(type, "tsens_tz_sensor", 15) == 0;
+        fclose(f);
+        snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/temp", i);
+        long t;
+        if (is_tsens && (f = fopen(path, "r"))) {
+            if (fscanf(f, "%ld", &t) == 1 && t / 10.0 > hottest)
+                hottest = t / 10.0;   /* tenths of a degree */
+            fclose(f);
+        }
+    }
+    return hottest;
+}
+
 static void stop(int sig)
 {
     (void)sig;
@@ -1071,6 +1124,8 @@ int main(void)
         fprintf(owner, "%d\n", getpid());
         fclose(owner);
     }
+    gpu_floor(GPU_FAST);
+    int gpu_fast = 1;
     glEnable(GL_DEPTH_TEST);
     glLineWidth(2);
     wlog("running: %dx%d, lens-centred, roll %.1f° / %.1f°", W, H, roll[0] * 180 / M_PI, roll[1] * 180 / M_PI);
@@ -1088,6 +1143,7 @@ int main(void)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         for (int eye = 0; eye < 2; eye++)
             draw_eye(eye, (float)t);
+        gles_frame_drawn();
         copying += present(frame++);
         frames++;
         busy += world_time() - t;
@@ -1095,11 +1151,30 @@ int main(void)
         if (wait > 0)
             usleep((useconds_t)(wait * 1e6));
         if (world_time() - report >= 10) {
-            wlog("%.1f fps; per frame %.1f ms busy, of which %.1f ms showing it", frames / (world_time() - report),
-                 1000 * busy / frames, 1000 * copying / frames);
-            report = world_time(), frames = 0, busy = copying = 0;
+            int gpu_busy = -1;
+            FILE *g = fopen("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "r");
+            if (g) {
+                if (fscanf(g, "%d", &gpu_busy) != 1)
+                    gpu_busy = -1;
+                fclose(g);
+            }
+            wlog("%.1f fps; per frame %.1f ms busy, of which %.1f ms showing it (%.1f waiting for the GPU, %.1f copying); "
+                 "GPU %d%% busy", frames / (world_time() - report), 1000 * busy / frames, 1000 * copying / frames,
+                 1000 * waiting_total / frames, 1000 * copying_total / frames, gpu_busy);
+            report = world_time(), frames = 0, busy = copying = waiting_total = copying_total = 0;
+            double hot = soc_temperature();
+            if (gpu_fast && hot > HOT_C) {
+                gpu_floor(GPU_GOVERNED);
+                gpu_fast = 0;
+                wlog("the SoC is at %.0f C: the GPU's clock goes back to its governor", hot);
+            } else if (!gpu_fast && hot < COOL_C) {
+                gpu_floor(GPU_FAST);
+                gpu_fast = 1;
+                wlog("the SoC is down to %.0f C: the GPU runs at full clock again", hot);
+            }
         }
     }
+    gpu_floor(GPU_GOVERNED);
     unlink(OWNER_PATH);
     unlink(SOCKET_PATH);
     wlog("stopped");

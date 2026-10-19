@@ -14,13 +14,14 @@
     X(PFNEGLGETDISPLAYPROC, eglGetDisplay) X(PFNEGLINITIALIZEPROC, eglInitialize)                             \
     X(PFNEGLQUERYSTRINGPROC, eglQueryString) X(PFNEGLCHOOSECONFIGPROC, eglChooseConfig)                       \
     X(PFNEGLCREATEPBUFFERSURFACEPROC, eglCreatePbufferSurface) X(PFNEGLCREATECONTEXTPROC, eglCreateContext)   \
-    X(PFNEGLMAKECURRENTPROC, eglMakeCurrent) X(PFNEGLGETERRORPROC, eglGetError)
+    X(PFNEGLMAKECURRENTPROC, eglMakeCurrent) X(PFNEGLGETERRORPROC, eglGetError)                               \
+    X(PFNEGLGETPROCADDRESSPROC, eglGetProcAddress)
 
 #define GL_FUNCTIONS(X)                                                                                        \
     X(PFNGLGETSTRINGPROC, glGetString) X(PFNGLVIEWPORTPROC, glViewport) X(PFNGLCLEARCOLORPROC, glClearColor)  \
     X(PFNGLCLEARPROC, glClear) X(PFNGLENABLEPROC, glEnable) X(PFNGLDISABLEPROC, glDisable)                    \
     X(PFNGLBLENDFUNCPROC, glBlendFunc) X(PFNGLDEPTHMASKPROC, glDepthMask) X(PFNGLLINEWIDTHPROC, glLineWidth)  \
-    X(PFNGLGETERRORPROC, glGetError) X(PFNGLFINISHPROC, glFinish) X(PFNGLREADPIXELSPROC, glReadPixels)        \
+    X(PFNGLGETERRORPROC, glGetError) X(PFNGLFINISHPROC, glFinish) X(PFNGLFLUSHPROC, glFlush) X(PFNGLREADPIXELSPROC, glReadPixels)        \
     X(PFNGLCREATESHADERPROC, glCreateShader) X(PFNGLSHADERSOURCEPROC, glShaderSource)                         \
     X(PFNGLCOMPILESHADERPROC, glCompileShader) X(PFNGLGETSHADERIVPROC, glGetShaderiv)                         \
     X(PFNGLGETSHADERINFOLOGPROC, glGetShaderInfoLog) X(PFNGLDELETESHADERPROC, glDeleteShader)                 \
@@ -43,15 +44,24 @@
     X(PFNGLACTIVETEXTUREPROC, glActiveTexture) X(PFNGLTEXIMAGE2DPROC, glTexImage2D)                           \
     X(PFNGLTEXPARAMETERIPROC, glTexParameteri) X(PFNGLTEXPARAMETERFPROC, glTexParameterf)                     \
     X(PFNGLGENERATEMIPMAPPROC, glGenerateMipmap) X(PFNGLGETFLOATVPROC, glGetFloatv)                           \
-    X(PFNGLPIXELSTOREIPROC, glPixelStorei)
+    X(PFNGLPIXELSTOREIPROC, glPixelStorei) X(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers)                    \
+    X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer) X(PFNGLFRAMEBUFFERTEXTURE2DPROC, glFramebufferTexture2D)   \
+    X(PFNGLGENRENDERBUFFERSPROC, glGenRenderbuffers) X(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer)         \
+    X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage)                                                    \
+    X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer)                                            \
+    X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus)                                              \
+    X(PFNGLINVALIDATEFRAMEBUFFERPROC, glInvalidateFramebuffer)
 
 #define X(type, name) extern type name;
 EGL_FUNCTIONS(X)
 GL_FUNCTIONS(X)
 #undef X
 
-/* Load the driver and make an offscreen OpenGL ES 3 context, width x height, 4x multisampled if it can be.
- * Returns 0, or -1 with the reason logged. */
+/* Load the driver and make an OpenGL ES 3 context with an offscreen framebuffer, width x height, which
+ * stays bound: 4x multisampled within the GPU's tile memory if it can be, so that only the resolved
+ * image is written out. Returns 0, or -1 with the reason logged. */
 int gles_init(int width, int height);
+/* After drawing a frame: depth needn't be kept, so it never leaves the GPU */
+void gles_frame_drawn(void);
 
 #endif

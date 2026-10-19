@@ -61,7 +61,6 @@ How:
 | **Lens centring and distortion** | Each eye's projection must be centred on its lens (852,865 and 2028,865 on screen), and the image pre-warped for the lens; the roll correction (already per pixel on the CPU) moves into the same GPU pass |
 | **Head tracking: position** | Turning is tracked (below); moving about needs the cameras (6DoF, open SLAM) |
 | **Voice** | The microphones (the audio DSP already runs) and speech-to-text, on the Mac at first |
-| **GPU clock** | The GPU stays at its lowest clock (257 MHz; `msm-adreno-tz` sees it idle while the CPU copies frames), so filling the screen costs: a full-screen textured floor takes the world from 48 to 36 fps. Raise its floor while the world runs (kgsl's `min_pwrlevel`), with an eye on temperature |
 | **Instancing** | Many copies of one mesh (grass blades, puffs of smoke, crowds) in one draw, each with its own transform and colour |
 | **Faster extensions** | They run in WAMR's fast interpreter (its JIT is x86-only). Ahead-of-time compilation with `wamrc`, which needs LLVM (already in the headset's compiler), would make heavy `on_frame()` code native |
 
@@ -88,8 +87,23 @@ heading is recentred when the world starts and by afterglowd's `recentre`; exten
 with `head_pose()`.
 
 Not yet: Meta's factory calibration of the IMU, the magnetometer to stop the heading drifting, and
-lower latency (frames straight to the panels, a higher GPU clock: the village scene runs at 23 fps,
-which shows as lag when turning).
+lower latency (frames straight to the panels; reprojecting each refresh with the latest head pose).
+
+## Frame rate (2026-10-19)
+
+With tracking, a slow frame rate shows as the world lagging the head. A village scene ran at 23-28
+fps, unevenly; measured part by part, then fixed:
+
+| Cause | Fix | Result |
+|---|---|---|
+| The CPU's copy to the framebuffer reversed every row, pixel by pixel, into uncached memory: ~20 ms | Draw the frame mirrored (x negated in the projection, eyes' halves swapped), so the copy is a straight `memcpy` | 2.7-5.5 ms |
+| The GPU stayed at 257 MHz: its governor (`msm-adreno-tz`) saw it idle while the CPU worked | The world holds `min_pwrlevel` at 0 (710 MHz) while it runs, gives it back when it stops or if a SoC sensor passes 70 °C | Drawing the village: 17.6 ms |
+| A frame's commands reached the GPU only when the CPU next waited, so drawing, copying and `FBIOPAN_DISPLAY` (which blocks until the next refresh, ~12 ms) ran one after another | `glFlush()` once the frame is submitted, so the GPU draws while the previous frame is copied and shown | GPU wait 23 ms → 5.5 ms |
+| 4x multisampled pbuffer: four samples a pixel to memory, resolved on readback | A framebuffer object with `EXT_multisampled_render_to_texture`: multisampling stays in tile memory | (no measurable change here) |
+
+The village now runs at a steady 36 fps: every other refresh, as drawing it takes the GPU 17.6 ms and a
+refresh is 13.9 ms. A scene needs under about 11 ms of GPU a frame for 72 fps; the world's log line
+gives the GPU's busy share each 10 s.
 
 ## Something on screen in seconds (2026-10-19)
 

@@ -220,6 +220,13 @@ Boot timing with `/init` starting the bring-up (2026-10-19, from the kernel star
 ready at 14 s; the kernel's random pool is seeded only at about 20 s (no hardware RNG driver is
 registered: `rng_available` is empty), and `wpa_supplicant` waits for it; Wi-Fi address at 27 s.
 
+The GPU's clock (`/sys/class/kgsl/kgsl-3d0`: 257, 342, 414, 515, 596, 670, 710 MHz) is chosen by
+the `msm-adreno-tz` governor from how busy it is; with the CPU copying frames it stays at 257 MHz.
+`min_pwrlevel` (0 = 710 MHz, 6 = 257 MHz) sets a floor; the world uses 0 while it runs. Temperatures:
+`tsens_tz_sensor*` (tenths of a degree), about 45-49 °C at rest with the world running; the fan is a
+cooling device (`oculus,fan`, state 1 of 2). Android's thermal service isn't running under afterglow.
+`FBIOPAN_DISPLAY` blocks until the next refresh (72 Hz).
+
 The clock starts at 1970: the PMIC's RTC (`qpnp_rtc`, `/sys/class/rtc/rtc0`) has no device node and
 nothing reads it at boot. `udhcpc.sh` runs BusyBox `ntpd -q` when Wi-Fi gets an address, which is
 what https needs. Android's 134 CA certificates in `/system/etc/security/cacerts` work for Go's TLS

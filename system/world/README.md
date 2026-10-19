@@ -64,6 +64,10 @@ python3 tools/push_file.py out/world/toolchain.tar.gz --extract /storage/toolcha
   While the world runs it owns the display (`/run/afterglow/display-owner`); `/init`'s status screen
   returns when it stops.
 
+Each 10 s the world logs its frame rate, where the time goes (waiting for the GPU, copying, showing)
+and how busy the GPU is: a scene wants under about 11 ms of GPU a frame for 72 fps
+([docs/apps.md](../../docs/apps.md#frame-rate-2026-10-19)).
+
 Placeholders, measured 2026-10-19: a four-shape cottage loaded with its sign 2 s after it was sent
 (compile 0.9 s); its textured replacement, fixed by a one-line edit, 1.6 s. A 1024² CC0 texture
 fetched from Poly Haven in 1.1 s. A full-screen textured floor brings the world to 36 fps: the GPU
