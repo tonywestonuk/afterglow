@@ -90,8 +90,10 @@ static void run_command(const char *cmd)
         restart("bootloader");
     else if (strcmp(cmd, "reboot") == 0)
         restart(NULL);
+    else if (strcmp(cmd, "poweroff") == 0)
+        power_off("console command");
     else if (strcmp(cmd, "help") == 0)
-        reply("commands: bootloader (restart to fastboot), reboot (restart to Android), help\r\n");
+        reply("commands: bootloader (restart to fastboot), reboot (restart to Android), poweroff, help\r\n");
     else
         reply("unknown command; try help\r\n");
 }

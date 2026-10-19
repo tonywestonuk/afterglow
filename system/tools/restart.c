@@ -1,7 +1,7 @@
 /*
  * restart [TARGET]: restart the headset now, into TARGET if given ("bootloader" for the fastboot menu),
- * as /init's restart does. For the shell and afterglowd: BusyBox's reboot signals PID 1, which
- * afterglow's /init doesn't handle, and can't name a target.
+ * as /init's restart does. For the shell and afterglowd: BusyBox's reboot and poweroff work too (they
+ * ask /init), but can't name a target.
  */
 #include <linux/reboot.h>
 #include <stdio.h>

@@ -2,7 +2,7 @@
 """afterglow's USB serial console, from a Mac or Linux PC.
 
 The headset shows up as two serial ports (/dev/cu.usbmodem* on a Mac, /dev/ttyACM* on Linux): the
-first streams its kernel log and takes commands (see system/init/usb.c: bootloader, reboot, help),
+first streams its kernel log and takes commands (see system/init/usb.c: bootloader, reboot, poweroff, help),
 the second is a BusyBox shell. Standard library only.
 
 Usage: console.py [--log FILE] [--send CMD]... [--until REGEX] [--duration S] [--wait S]   kernel log

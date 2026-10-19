@@ -2,8 +2,10 @@
  * afterglow's first process (PID 1). It sets up a minimal environment, starts the USB serial console
  * (kernel log out, commands in) with a BusyBox shell on its second port, starts the hardware bring-up
  * (Wi-Fi, afterglowd: system/scripts/bringup.sh), and plays the boot animation until that's done,
- * then shows the status screen. Development builds restart after afterglow.test_seconds=N (kernel
- * command line), into afterglow.restart_to if given.
+ * then shows the status screen. It runs until it's told to stop: Power pressed twice switches the
+ * headset off, and so do BusyBox's poweroff and halt (reboot restarts it); `restart bootloader` goes
+ * to the fastboot menu. Experiments that might hang can restart after afterglow.test_seconds=N
+ * (kernel command line), into afterglow.restart_to if given.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -16,6 +18,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
+#include <linux/input.h>
 #include <linux/reboot.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -213,6 +217,44 @@ void restart(const char *target)
         pause();
 }
 
+void power_off(const char *why)
+{
+    klog("switching off: %s", why);
+    sync();
+    reboot(RB_POWER_OFF);
+    for (;;)
+        pause();
+}
+
+/* Power pressed twice within this many seconds switches the headset off */
+#define DOUBLE_PRESS 0.6
+
+static void *power_button_thread(void *arg)
+{
+    (void)arg;
+    if (input_open() == 0) {
+        klog("no buttons found: pressing Power twice won't switch the headset off");
+        return NULL;
+    }
+    double last = -10;
+    for (;;) {
+        if (input_key(-1) != KEY_POWER)
+            continue;
+        if (now() - last < DOUBLE_PRESS)
+            power_off("Power pressed twice");
+        last = now();
+    }
+    return NULL;
+}
+
+/* What BusyBox's reboot (SIGTERM), halt (SIGUSR1) and poweroff (SIGUSR2) ask of PID 1 */
+static volatile sig_atomic_t asked;
+
+static void on_signal(int sig)
+{
+    asked = sig;
+}
+
 struct display_job {
     double degrees[2];   /* per-eye roll correction, counterclockwise as the viewer sees it */
     double deadline;
@@ -327,9 +369,15 @@ int main(void)
     job.degrees[1] = cmdline_number("afterglow.roll_right_deg", 0);
     job.deadline = deadline;
     job.calibrate = cmdline_number("afterglow.calibrate", 0) != 0;
-    pthread_t display;
+    pthread_t display, power_button;
     if (pthread_create(&display, NULL, display_thread, &job) == 0)
         pthread_detach(display);
+    /* (Calibration reads the buttons itself) */
+    if (!job.calibrate && pthread_create(&power_button, NULL, power_button_thread, NULL) == 0)
+        pthread_detach(power_button);
+    signal(SIGTERM, on_signal);
+    signal(SIGUSR1, on_signal);
+    signal(SIGUSR2, on_signal);
 
     /* As PID 1: reap every exited process, keep the development shell running, end test builds */
     const char *shell_tty = usb_shell_tty();
@@ -354,6 +402,10 @@ int main(void)
             shell = spawn_shell(shell_tty);
             next_shell = now() + 1;   /* at most one restart a second */
         }
+        if (asked == SIGTERM)
+            restart(NULL);
+        else if (asked)
+            power_off(asked == SIGUSR1 ? "halt" : "poweroff");
         if (deadline > 0 && now() >= deadline) {
             char target[32];
             restart(cmdline_string("afterglow.restart_to", target, sizeof(target)));

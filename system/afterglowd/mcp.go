@@ -28,7 +28,9 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
   slot's system partition). Everything else outside mounted partitions is RAM and is lost at
   restart. The headset's own partitions are mounted read-only. Never write to a partition or block
   device: persist, private, vision, devinfo, modemst1/2, fsg and fsc hold irreplaceable per-device
-  data. Ask the person before restarting the headset; they may be wearing it.
+  data. Ask the person before restarting the headset; they may be wearing it. It runs until told
+  to stop: poweroff switches it off, restart bootloader goes to the fastboot menu, and the wearer
+  can press Power twice to switch it off.
 - Displays: two panels, one 2880x1600 framebuffer (/dev/fb0). The screenshot tool shows them as
   the wearer sees them.
 - Hardware bring-up: sh /afterglow/bringup.sh (no arguments lists the steps). Wi-Fi:

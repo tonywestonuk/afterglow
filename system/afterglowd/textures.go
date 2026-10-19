@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,12 +39,14 @@ func textureTools() []tool {
 				"AUTOMATIC1111 web API: AUTOMATIC1111, Forge, SD.Next, Draw Things' HTTP server...) paint a texture, " +
 				"and keep it on the headset for extensions' texture_load(\"name\"). Describe a material seen " +
 				"straight on, evenly lit (e.g. \"short green lawn grass, top-down photo, even light\"). Takes " +
-				"seconds to minutes: put a placeholder up first. Returns a preview.",
+				"seconds to minutes: put a placeholder up first. A call returns within about 40 s, with the texture " +
+				"or \"still generating\"; call again with the same name and prompt to keep waiting. Returns a preview.",
 			InputSchema: schema([]string{"name", "prompt"}, map[string]any{
 				"name":     prop("string", "Texture name: lower case, digits, - or _ (e.g. grass)"),
 				"prompt":   prop("string", "What to paint"),
 				"seamless": prop("boolean", "Make it repeat without visible seams (for floors, walls, terrain)"),
-				"size":     prop("integer", "Pixels each way: 256 to 1024, a multiple of 64 (default: the generator's own setting, which suits its model)"),
+				"size": prop("integer", "Pixels across, 256 to 1024: the image is shrunk to this. The generator always "+
+					"works at its own setting, since models make garbage away from the size they were made for (default: as made)"),
 				"server": prop("string", "The generator's address, e.g. http://192.168.1.20:7860 (remembered; it "+
 					"must accept connections from the network, not just from its own computer)"),
 			}),
@@ -93,7 +96,7 @@ func fetchTexture(args json.RawMessage) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return saveTexture(a.Name, data, a.Seamless, "from "+a.URL)
+	return saveTexture(a.Name, data, a.Seamless, 0, "from "+a.URL)
 }
 
 // clockHint explains certificate errors that come from the headset's clock being wrong.
@@ -104,22 +107,41 @@ func clockHint(err error) string {
 	return ""
 }
 
+type generateArgs struct {
+	Name     string `json:"name"`
+	Prompt   string `json:"prompt"`
+	Seamless bool   `json:"seamless"`
+	Size     int    `json:"size"`
+	Server   string `json:"server"`
+}
+
+// Generating can take minutes, longer than MCP clients wait for a call, so a call waits at most
+// generateWait and then says it's still going; calling again with the same name waits on the same
+// job rather than starting another.
+var (
+	generateWait = 40 * time.Second
+	jobsMu       sync.Mutex
+	jobs         = map[string]*textureJob{}
+)
+
+type textureJob struct {
+	prompt  string
+	started time.Time
+	done    chan struct{}
+	result  []any
+	err     error
+}
+
 func generateTexture(args json.RawMessage) ([]any, error) {
-	var a struct {
-		Name     string `json:"name"`
-		Prompt   string `json:"prompt"`
-		Seamless bool   `json:"seamless"`
-		Size     int    `json:"size"`
-		Server   string `json:"server"`
-	}
+	var a generateArgs
 	if err := decode(args, &a); err != nil {
 		return nil, err
 	}
 	if !extNameRule.MatchString(a.Name) {
 		return nil, errors.New("name: lower case letters, digits, - or _, starting with a letter, up to 32")
 	}
-	if a.Size != 0 && (a.Size < 256 || a.Size > 1024 || a.Size%64 != 0) {
-		return nil, errors.New("size: 256 to 1024, a multiple of 64")
+	if a.Size != 0 && (a.Size < 256 || a.Size > 1024) {
+		return nil, errors.New("size: 256 to 1024")
 	}
 	if a.Server != "" {
 		if u, err := url.Parse(a.Server); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -134,15 +156,71 @@ func generateTexture(args json.RawMessage) ([]any, error) {
 			"its HTTP API server on and reachable from the network); it's remembered")
 	}
 
+	jobsMu.Lock()
+	job := jobs[a.Name]
+	if job != nil && job.prompt != a.Prompt {
+		select {
+		case <-job.done: // finished and never collected: replaced by this one
+			job = nil
+		default:
+			jobsMu.Unlock()
+			return nil, fmt.Errorf("already generating %s from another prompt (%.0f s so far): call again with that "+
+				"prompt to wait for it, or use another name", a.Name, time.Since(job.started).Seconds())
+		}
+	}
+	if job == nil {
+		job = &textureJob{prompt: a.Prompt, started: time.Now(), done: make(chan struct{})}
+		jobs[a.Name] = job
+		go func() {
+			job.result, job.err = generate(a)
+			close(job.done)
+		}()
+	}
+	jobsMu.Unlock()
+
+	select {
+	case <-job.done:
+		jobsMu.Lock()
+		if jobs[a.Name] == job {
+			delete(jobs, a.Name)
+		}
+		jobsMu.Unlock()
+		return job.result, job.err
+	case <-time.After(generateWait):
+		return []any{text(fmt.Sprintf("still generating %s (%.0f s so far; image generators can take minutes). "+
+			"Call generate_texture again with the same name and prompt to wait for it: that won't start another. "+
+			"It's saved as %s when done.", a.Name, time.Since(job.started).Seconds(),
+			filepath.Join(textureDir(), a.Name+".png")))}, nil
+	}
+}
+
+// generatingNow lists the textures being generated, for list_extensions.
+func generatingNow() string {
+	jobsMu.Lock()
+	defer jobsMu.Unlock()
+	var names []string
+	for name, job := range jobs {
+		select {
+		case <-job.done:
+		default:
+			names = append(names, fmt.Sprintf("%s (%.0f s so far)", name, time.Since(job.started).Seconds()))
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	return "generating: " + strings.Join(names, ", ") + "\n"
+}
+
+// generate asks the image generator for one image and keeps it.
+func generate(a generateArgs) ([]any, error) {
 	request := map[string]any{
 		"prompt":          a.Prompt,
 		"negative_prompt": "text, words, watermark, signature, logo, frame, border, vignette",
 		"tiling":          a.Seamless,
 		"batch_size":      1,
 		"n_iter":          1,
-	}
-	if a.Size != 0 {
-		request["width"], request["height"] = a.Size, a.Size
 	}
 	start := time.Now()
 	var body []byte
@@ -196,7 +274,7 @@ func generateTexture(args json.RawMessage) ([]any, error) {
 	if len(dropped) > 0 {
 		origin += fmt.Sprintf(" (the generator doesn't take %s)", strings.Join(dropped, ", "))
 	}
-	return saveTexture(a.Name, data, a.Seamless, origin)
+	return saveTexture(a.Name, data, a.Seamless, a.Size, origin)
 }
 
 var unrecognized = regexp.MustCompile(`[Uu]nrecognized keys: \[([^\]]*)\]`)
@@ -223,17 +301,20 @@ func unrecognizedKeys(body []byte) []string {
 	return keys
 }
 
-// saveTexture checks an image, shrinks it if it's huge, makes it seamless if asked, and keeps it as
-// textureDir()/NAME.png. It returns a preview and a note of what it did.
-func saveTexture(name string, data []byte, seamless bool, origin string) ([]any, error) {
+// saveTexture checks an image, shrinks it to size across (if given) or if it's huge, makes it seamless
+// if asked, and keeps it as textureDir()/NAME.png. It returns a preview and a note of what it did.
+func saveTexture(name string, data []byte, seamless bool, size int, origin string) ([]any, error) {
 	decoded, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("not a PNG or JPEG image: %w", err)
 	}
 	img := toNRGBA(decoded)
 	notes := []string{fmt.Sprintf("%s, %s", origin, format)}
-	if w, h := img.Rect.Dx(), img.Rect.Dy(); w > maxTextureSide || h > maxTextureSide {
-		k := float64(maxTextureSide) / float64(max(w, h))
+	if size == 0 {
+		size = maxTextureSide
+	}
+	if w, h := img.Rect.Dx(), img.Rect.Dy(); w > size || h > size {
+		k := float64(size) / float64(max(w, h))
 		img = shrink(img, max(1, int(float64(w)*k)), max(1, int(float64(h)*k)))
 		notes = append(notes, fmt.Sprintf("shrunk from %dx%d", w, h))
 	}
@@ -480,8 +561,8 @@ func listTextures() string {
 		}
 	}
 	if len(names) == 0 {
-		return "textures: none yet (generate_texture, fetch_texture)\n"
+		return "textures: none yet (generate_texture, fetch_texture)\n" + generatingNow()
 	}
 	sort.Strings(names)
-	return "textures: " + strings.Join(names, ", ") + "\n"
+	return "textures: " + strings.Join(names, ", ") + "\n" + generatingNow()
 }

@@ -108,7 +108,8 @@ themselves (tested 2026-10-19 by detaching and reattaching the gadget's UDC).
 | `qpnp_pon` (power management chip) | Volume Down, Power |
 | `gpio-keys` | Volume Up (plus `KEY_CAMERA_FOCUS` and code 0x2fe, unidentified) |
 
-Holding Power for about 10 seconds forces a hardware restart.
+Holding Power for about 10 seconds forces a hardware restart. Under afterglow, pressing Power twice
+within 0.6 s switches the headset off (`/init`, after syncing storage).
 
 `pstore`/ramoops (1 MB at `0x9d300000`) is configured, but its contents do not survive a restart into
 the bootloader, so it can't be used to read a test boot's log afterwards.

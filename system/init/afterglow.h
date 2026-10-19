@@ -11,6 +11,7 @@ double now(void);
 
 /* Restart: to Android (target NULL), or into a bootloader mode such as "bootloader" (fastboot). */
 void restart(const char *target) __attribute__((noreturn));
+void power_off(const char *why) __attribute__((noreturn));
 
 /* USB serial console: kernel log out, commands in (see usb.c). Returns 0 once running. */
 int usb_console_start(void);

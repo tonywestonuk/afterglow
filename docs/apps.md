@@ -114,3 +114,12 @@ AUTOMATIC1111 API. Draw Things (2026-10-19, on the Mac): its HTTP API server ans
 them, so afterglowd asks again without them (seamless then comes from the edge blending); it
 listens only on 127.0.0.1 until set otherwise. A 1024x1024 texture with PixArt Sigma at 20 steps
 took 120 s on the Mac: placeholders matter. DiffusionBee and Mochi Diffusion have no API.
+
+Lessons from texturing a supermarket with it (2026-10-19):
+- A model makes garbage away from the size it was made for (PixArt Sigma at 512: glitchy stripes,
+  straight from Draw Things). afterglowd never sends a size; `size` only shrinks the result.
+- Generating outlasts MCP clients' patience (about a minute), and a client that gives up and asks
+  again queues duplicates. A call now waits at most 40 s, then says "still generating"; calling again
+  with the same name and prompt waits on the same job.
+- Diffusion models don't follow "an N x M grid of designs": the cells come out in other counts and
+  shapes. Measure the cells in the result, or generate one design per image.

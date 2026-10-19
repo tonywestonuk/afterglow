@@ -14,7 +14,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const testToken = "test-token-123"
@@ -323,7 +325,7 @@ func TestTextures(t *testing.T) {
 		"size": 768}); isErr || !strings.Contains(out, "doesn't take tiling") || !strings.Contains(out, "edges blended") {
 		t.Errorf("generate_texture from a strict generator: %s", out)
 	}
-	if asked["width"] != 768.0 || asked["tiling"] != nil {
+	if asked["width"] != nil || asked["tiling"] != nil {
 		t.Errorf("the strict generator was last asked for %v", asked)
 	}
 	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "moss", "prompt": "moss"}); isErr {
@@ -336,7 +338,53 @@ func TestTextures(t *testing.T) {
 	if out, isErr := call(t, s, "fetch_texture", map[string]any{"name": "nope", "url": "file:///etc/passwd"}); !isErr {
 		t.Errorf("fetch_texture of a file: URL accepted: %s", out)
 	}
-	if got := listTextures(); got != "textures: bands (600x300), lawn (600x300), moss (600x300), strict (600x300)\n" {
+	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "small", "prompt": "grass", "size": 256}); isErr ||
+		!strings.Contains(out, "256x128") || asked["width"] != nil {
+		t.Errorf("generate_texture size 256: %s (asked %v)", out, asked)
+	}
+	if got := listTextures(); got != "textures: bands (600x300), lawn (600x300), moss (600x300), small (256x128), strict (600x300)\n" {
 		t.Errorf("listTextures: %q", got)
+	}
+}
+
+func TestSlowGeneration(t *testing.T) {
+	dir := t.TempDir()
+	defer func(f func() string, g string, w time.Duration) { worldDir, imageGeneratorFile, generateWait = f, g, w }(
+		worldDir, imageGeneratorFile, generateWait)
+	worldDir = func() string { return dir }
+	imageGeneratorFile = filepath.Join(dir, "image-generator")
+	generateWait = 100 * time.Millisecond
+	var picture bytes.Buffer
+	png.Encode(&picture, stripes(64, 64))
+	release, requests := make(chan struct{}), 0
+	var mu sync.Mutex
+	generator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		mu.Unlock()
+		<-release // as slow as it takes
+		json.NewEncoder(w).Encode(map[string]any{"images": []string{base64.StdEncoding.EncodeToString(picture.Bytes())}})
+	}))
+	defer generator.Close()
+
+	s := newTestServer(t)
+	args := map[string]any{"name": "slow", "prompt": "cardboard", "server": generator.URL}
+	for i := 0; i < 2; i++ {
+		if out, isErr := call(t, s, "generate_texture", args); isErr || !strings.Contains(out, "still generating slow") {
+			t.Fatalf("call %d while generating: %s", i+1, out)
+		}
+	}
+	if got := generatingNow(); !strings.HasPrefix(got, "generating: slow (") {
+		t.Errorf("generatingNow: %q", got)
+	}
+	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "slow", "prompt": "bricks"}); !isErr {
+		t.Errorf("another prompt under the same name while generating: %s", out)
+	}
+	close(release)
+	if out, isErr := call(t, s, "generate_texture", args); isErr || !strings.Contains(out, "texture slow: 64x64") {
+		t.Errorf("after it finished: %s", out)
+	}
+	if requests != 1 {
+		t.Errorf("the generator was asked %d times, want 1", requests)
 	}
 }

@@ -41,7 +41,9 @@ never put a device serial number in the repo.
   `--run 'COMMAND'` to run a command in the headset's BusyBox shell. Console logs contain the
   device serial number: keep them in `out/`. `/init` runs `bringup.sh all` itself at boot (log
   `/tmp/bringup.log`); don't run it again by hand.
-  Test boot images carry `afterglow.test_seconds=N afterglow.restart_to=bootloader` as a safety net.
+  Images run until told to stop: `poweroff` or `restart bootloader` (shell or afterglowd's `run`), or the
+  wearer presses Power twice to switch off. The everyday image is `out/system/boot.img` (no timer); add
+  `afterglow.test_seconds=N afterglow.restart_to=bootloader` only for experiments that might hang.
 - Once `afterglowd` is up and paired (`tools/console.py --pair`, see `system/afterglowd/README.md`), it's
   the faster way in: MCP tools over Wi-Fi at `http://afterglow.local:7070/mcp`, token in
   `~/.config/afterglow/token` (never print it). Its `write_file` refuses anything under `/dev`; test

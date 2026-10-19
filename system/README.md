@@ -7,7 +7,7 @@ the MCP server through which Claude Code on a computer works on the headset.
 
 | File | What |
 |---|---|
-| `init/init.c` | PID 1: minimal `/proc`, `/sys`, `/dev`, loopback; starts the bring-up; reads options from the kernel command line; restarts in test builds |
+| `init/init.c` | PID 1: minimal `/proc`, `/sys`, `/dev`, loopback; starts the bring-up; reads options from the kernel command line; switches off when Power is pressed twice or on BusyBox's `poweroff` |
 | `init/status.c` | The status screen: one line per file in `/run/afterglow/status` (`label<TAB>text`), in Montserrat via stb_truetype |
 | `init/display.c` | Framebuffer access and per-eye drawing (the panels show the framebuffer rotated 180°; each eye's image can be turned to cancel panel roll) |
 | `init/bootanim.c` | Plays a pre-rendered stereo animation (`tools/pack_anim.py` format), both eyes decoded and drawn in parallel |
@@ -19,7 +19,7 @@ the MCP server through which Claude Code on a computer works on the headset.
 | `scripts/bringup.sh` | Starts the audio DSP, GPU, modem DSP and Wi-Fi as Android would, with the headset's own firmware ([findings](../docs/hardware.md#subsystems-and-wi-fi-without-android)) |
 | `scripts/wifi.sh`, `scripts/udhcpc.sh` | Scan, join and forget Wi-Fi networks, set the country; apply DHCP leases |
 | `scripts/format_storage.sh` | Make afterglow's storage on the spare slot's system partition ([docs/storage.md](../docs/storage.md)) |
-| `tools/restart.c` | `restart [bootloader]` from the shell or afterglowd (BusyBox's `reboot` signals PID 1, which /init doesn't handle) |
+| `tools/restart.c` | `restart [bootloader]` from the shell or afterglowd (BusyBox's `reboot` and `poweroff` work too, but can't name a target) |
 | `afterglowd/` | The MCP server: shell, files, screenshots, logs, status, the world's extensions, over Wi-Fi ([README](afterglowd/README.md)) |
 | `world/` | The 3D world on the GPU, extended while it runs by WebAssembly extensions ([README](world/README.md)) |
 | `gpu/` | The first GPU probe: Qualcomm's OpenGL ES driver under afterglow ([README](gpu/README.md)) |
@@ -35,7 +35,7 @@ the MCP server through which Claude Code on a computer works on the headset.
 | `afterglow.roll_left_deg=N`, `afterglow.roll_right_deg=N` | Turn each eye's image N° counterclockwise to cancel panel roll (measured with the calibration screen) |
 | `afterglow.bringup=0` | Don't start the bring-up at boot (the animation then keeps looping) |
 | `afterglow.calibrate=1` | Show the calibration screen instead of the boot animation |
-| `afterglow.test_seconds=N` | Development: restart after N seconds |
+| `afterglow.test_seconds=N` | Development, for experiments that might hang: restart after N seconds (images otherwise run until told to stop) |
 | `afterglow.restart_to=bootloader` | Development: restart into the fastboot menu |
 
 ## Build and try it
@@ -53,7 +53,7 @@ docker run --rm -v "$PWD":/work afterglow-kernel-build /work/system/build.sh /wo
 docker run --rm -v "$PWD":/work afterglow-kernel-build /work/kernel/build/make_bootimg.sh \
     /work/firmware/49845030443200410/boot.img /work/out/kernel/Image.gz-dtb /work/out/system/boot.img \
     /work/out/system/initramfs.cpio.gz "afterglow_initramfs afterglow.roll_left_deg=1 afterglow.roll_right_deg=2"
-fastboot boot out/system/boot.img     # RAM only; hold power ~10 s to get back to Android
+fastboot boot out/system/boot.img     # RAM only; press Power twice to switch off (then it starts Android)
 ```
 
 ## USB serial console
@@ -61,7 +61,7 @@ fastboot boot out/system/boot.img     # RAM only; hold power ~10 s to get back t
 As soon as `/init` starts, the headset appears on the computer it's plugged into as two USB serial
 ports (CDC-ACM; on a Mac `/dev/cu.usbmodemafterglow1` and `…3`, on Linux `/dev/ttyACM*`):
 
-1. the whole kernel log from the first line of the boot, and commands (`bootloader`, `reboot`, `help`).
+1. the whole kernel log from the first line of the boot, and commands (`bootloader`, `reboot`, `poweroff`, `help`).
    Writes wait for the computer, so nothing is lost before it connects.
 2. a BusyBox shell (1.37.0, static, about 400 tools), which `/init` restarts if it exits.
 
