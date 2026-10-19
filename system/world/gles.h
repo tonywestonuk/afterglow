@@ -50,7 +50,8 @@
     X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage)                                                    \
     X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer)                                            \
     X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus)                                              \
-    X(PFNGLINVALIDATEFRAMEBUFFERPROC, glInvalidateFramebuffer)
+    X(PFNGLINVALIDATEFRAMEBUFFERPROC, glInvalidateFramebuffer) X(PFNGLFENCESYNCPROC, glFenceSync)                     \
+    X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) X(PFNGLDELETESYNCPROC, glDeleteSync)
 
 #define X(type, name) extern type name;
 EGL_FUNCTIONS(X)

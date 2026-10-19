@@ -64,8 +64,9 @@ python3 tools/push_file.py out/world/toolchain.tar.gz --extract /storage/toolcha
   While the world runs it owns the display (`/run/afterglow/display-owner`); `/init`'s status screen
   returns when it stops.
 
-Each 10 s the world logs its frame rate, where the time goes (waiting for the GPU, copying, showing)
-and how busy the GPU is: a scene wants under about 11 ms of GPU a frame for 72 fps
+Each 10 s the world logs frames drawn and shown a second (it shows one at every refresh, reprojected
+for the head's turn, however fast it draws), and how busy the GPU is: a scene wants under about 11 ms
+of GPU a frame to be drawn at 72
 ([docs/apps.md](../../docs/apps.md#frame-rate-2026-10-19)).
 
 Placeholders, measured 2026-10-19: a four-shape cottage loaded with its sign 2 s after it was sent

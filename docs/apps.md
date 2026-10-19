@@ -101,9 +101,18 @@ fps, unevenly; measured part by part, then fixed:
 | A frame's commands reached the GPU only when the CPU next waited, so drawing, copying and `FBIOPAN_DISPLAY` (which blocks until the next refresh, ~12 ms) ran one after another | `glFlush()` once the frame is submitted, so the GPU draws while the previous frame is copied and shown | GPU wait 23 ms → 5.5 ms |
 | 4x multisampled pbuffer: four samples a pixel to memory, resolved on readback | A framebuffer object with `EXT_multisampled_render_to_texture`: multisampling stays in tile memory | (no measurable change here) |
 
-The village now runs at a steady 36 fps: every other refresh, as drawing it takes the GPU 17.6 ms and a
-refresh is 13.9 ms. A scene needs under about 11 ms of GPU a frame for 72 fps; the world's log line
-gives the GPU's busy share each 10 s.
+That gave a steady 36 fps: every other refresh, as drawing the village takes the GPU 17.6 ms and a
+refresh is 13.9 ms. But showing each frame twice on a low-persistence display gives a double image
+when the head turns (the eye moves on between the two flashes: two half-bright copies, "transparent"),
+and the prediction needed (about 64 ms) made it jitter.
+
+**Reprojection** (Oculus's timewarp, in its simplest form): drawing and showing now run on separate
+threads. The main thread draws frames as fast as the scene allows (the village: 34-40 a second); the
+display thread shows the newest finished frame at every refresh, 72 a second, slid by the head's turn
+since that frame was drawn (yaw sideways, pitch up and down, in the copy it makes anyway; roll is
+ignored). Prediction is down to one refresh (19 ms). Moving things in a scene still update at the
+drawing rate. A scene needs under about 11 ms of GPU a frame to be drawn at 72; the world's log line
+gives frames drawn and shown a second and the GPU's busy share every 10 s.
 
 ## Something on screen in seconds (2026-10-19)
 

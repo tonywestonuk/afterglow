@@ -19,6 +19,7 @@
 #include <linux/fb.h>
 #include <math.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -48,10 +49,8 @@
 static const float lens_x[2] = { 852, 2028 }, lens_y = 865;
 #define FOCAL_PX 720.0f   /* pixels per unit of tan(angle) at the lens centre: about 90° across an eye */
 #define IPD 0.063f
-/* How far ahead to predict the head: a frame is drawn from the pose at its start and reaches the panels
- * as the next frame is shown (the copy lags one behind), then scans out: about two frames and a bit */
-#define PREDICT_FRAMES 2.0
-#define PREDICT_EXTRA 0.008
+/* Frames are drawn for the head as it will be when they're first seen (a frame's drawing time, then the
+ * refresh: frame_show reprojects later refreshes), at most this far ahead */
 #define PREDICT_MAX 0.1
 #define FRAME_RATE 72
 
@@ -923,42 +922,145 @@ static int display_open(void)
 }
 
 /*
- * Show the frame just drawn. For now through memory: the GPU copies each frame into a buffer while the
- * CPU puts the previous one on screen. Frames are drawn mirrored (eye_view), so the copy is straight,
- * row for row. Rendering straight into what the display scans out is still to come (docs/apps.md).
+ * Frames reach the panels through memory: the GPU reads each finished frame into a buffer, and the CPU
+ * copies it to the framebuffer's hidden page and flips to it at the next refresh (frames are drawn
+ * mirrored, eye_view, so the copy runs row for row). Drawing and showing run on their own threads: the
+ * main one draws frames as fast as the scene allows, and the display thread shows the newest finished
+ * frame at every refresh (72 Hz: the flip waits for it).
+ *
+ * Reprojection: a frame is drawn for one pose of the head and shown at later refreshes, by when the head
+ * has turned on. For a small turn the picture mostly slides, so each copy slides it by the turn since it
+ * was drawn (yaw sideways, pitch up and down; roll is ignored), and every refresh shows the world where
+ * it now is: no double image from showing one frame twice, and prediction only has to cover a refresh.
+ * Rendering straight into what the display scans out is still to come (docs/apps.md).
  */
-static double waiting_total, copying_total;   /* for the frame-rate report */
+#define DISPLAY_AHEAD 0.019   /* from the copy to the middle of the next refresh's scan-out */
 
-static double present(unsigned frame)
+static GLuint pbo[2];
+static GLsync drawing;                     /* done when the frame on the GPU is */
+static int drawing_pbo = -1, shown_pbo = -1;
+static float drawn_rotation[9];
+/* Shared with the display thread, under shown_lock: the newest finished frame (kept mapped) and its pose */
+static pthread_mutex_t shown_lock = PTHREAD_MUTEX_INITIALIZER;
+static const uint8_t *shown;
+static float shown_rotation[9];
+static unsigned refreshes;                 /* for the report */
+static double copying;
+
+/* After drawing: read the frame into a free buffer, with a fence to say when it's done */
+static void frame_submit(void)
 {
-    double t0 = now();
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[frame & 1]);
+    int k = shown_pbo == 0 ? 1 : 0;
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[k]);
     glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    /* Send this frame to the GPU now, so it draws while the previous one is copied and shown (the
-     * driver would otherwise hold it until the next call that waits, and the two would run in turn) */
-    glFlush();
-    if (frame > 0) {
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[(frame + 1) & 1]);
-        const uint32_t *src = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)W * H * 4, GL_MAP_READ_BIT);
-        double t1 = now();   /* mapping waits for the GPU to finish the frame */
-        waiting_total += t1 - t0;
-        if (src) {
-            int back = fb.pages == 2 ? fb.page ^ 1 : 0;
-            uint8_t *page = fb.mem + (size_t)back * fb.stride * H;
-            if (fb.stride == (size_t)W * 4)
-                memcpy(page, src, (size_t)W * H * 4);
-            else
-                for (int y = 0; y < H; y++)
-                    memcpy(page + (size_t)y * fb.stride, src + (size_t)y * W, (size_t)W * 4);
-            copying_total += now() - t1;
-            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-            fb.page = back;
-            fb.var.yoffset = back * H;
-            ioctl(fb.fd, FBIOPAN_DISPLAY, &fb.var);
-        }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    drawing = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();   /* to the GPU now, so it draws while frames are shown */
+    drawing_pbo = k;
+    memcpy(drawn_rotation, head_rotation, sizeof(drawn_rotation));
+}
+
+/* Wait up to `wait_ns` for the frame on the GPU; once it's finished it becomes the one shown. 1 if it did */
+static int frame_collect(GLuint64 wait_ns)
+{
+    if (drawing_pbo < 0)
+        return 0;
+    GLenum state = glClientWaitSync(drawing, 0, wait_ns);
+    if (state != GL_ALREADY_SIGNALED && state != GL_CONDITION_SATISFIED)
+        return 0;
+    glDeleteSync(drawing);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[drawing_pbo]);
+    const uint8_t *frame = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)W * H * 4, GL_MAP_READ_BIT);
+    int old = shown_pbo;
+    pthread_mutex_lock(&shown_lock);   /* waits if the display thread is copying the old one */
+    if (frame) {
+        shown = frame;
+        shown_pbo = drawing_pbo;
+        memcpy(shown_rotation, drawn_rotation, sizeof(shown_rotation));
+    }
+    pthread_mutex_unlock(&shown_lock);
+    if (frame && old >= 0) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[old]);
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    return now() - t0;
+    drawing_pbo = -1;
+    return 1;
+}
+
+/* Copy the newest frame to the hidden page, slid by the head's turn since it was drawn (under shown_lock) */
+static void frame_copy(const float now_rotation[9])
+{
+    /* Where the drawn frame's straight ahead lies now, in the head's present axes (its columns) */
+    const float *r = shown_rotation, *d = now_rotation;
+    float ahead[3] = { -r[6], -r[7], -r[8] }, f[3];
+    for (int k = 0; k < 3; k++)
+        f[k] = d[k * 3] * ahead[0] + d[k * 3 + 1] * ahead[1] + d[k * 3 + 2] * ahead[2];
+    int right = 0, up = 0;   /* pixels, as the wearer sees it */
+    if (f[2] < -0.5f) {
+        right = (int)lrintf(FOCAL_PX * f[0] / -f[2]);
+        up = (int)lrintf(FOCAL_PX * f[1] / -f[2]);
+        right = right > EYE_W / 2 ? EYE_W / 2 : right < -EYE_W / 2 ? -EYE_W / 2 : right;
+        up = up > H / 2 ? H / 2 : up < -H / 2 ? -H / 2 : up;
+    }
+    int back = fb.pages == 2 ? fb.page ^ 1 : 0;
+    uint8_t *page = fb.mem + (size_t)back * fb.stride * H;
+    const size_t row = (size_t)W * 4, half = (size_t)EYE_W * 4;
+    if (right == 0 && up == 0 && fb.stride == row)
+        memcpy(page, shown, row * H);
+    else
+        /* The framebuffer is the wearer's view turned 180°: their right is to the left here, their up is
+         * down, and the eyes' halves are swapped; nothing crosses from one eye's half to the other's */
+        for (int y = 0; y < H; y++) {
+            uint8_t *dst = page + (size_t)y * fb.stride;
+            int from = y - up;
+            if (from < 0 || from >= H) {
+                memset(dst, 0, row);
+                continue;
+            }
+            const uint8_t *src = shown + (size_t)from * row;
+            for (int e = 0; e < 2; e++) {
+                uint8_t *d0 = dst + e * half;
+                const uint8_t *s0 = src + e * half;
+                size_t shift = (size_t)abs(right) * 4;
+                if (right >= 0) {
+                    memcpy(d0, s0 + shift, half - shift);
+                    memset(d0 + half - shift, 0, shift);
+                } else {
+                    memset(d0, 0, shift);
+                    memcpy(d0 + shift, s0, half - shift);
+                }
+            }
+        }
+    fb.page = back;
+}
+
+/* The display thread: at every refresh, the newest frame for the head as it is then */
+static void *display_thread(void *arg)
+{
+    (void)arg;
+    double last = now();
+    while (running) {
+        float now_rotation[9], centre[3];
+        head_pose(DISPLAY_AHEAD, now_rotation, centre);
+        double c0 = now();
+        pthread_mutex_lock(&shown_lock);
+        int have = shown != NULL;
+        if (have)
+            frame_copy(now_rotation);
+        pthread_mutex_unlock(&shown_lock);
+        if (have) {
+            fb.var.yoffset = fb.page * H;
+            ioctl(fb.fd, FBIOPAN_DISPLAY, &fb.var);   /* waits for the refresh */
+            copying += now() - c0;
+            refreshes++;
+        }
+        double wait = last + 1.0 / FRAME_RATE - 0.002 - now();   /* in case flipping doesn't wait */
+        if (!have || wait > 0)
+            usleep(have ? (useconds_t)(wait * 1e6) : 5000);
+        last = now();
+    }
+    return NULL;
 }
 
 /* ---- Control ---- */
@@ -1130,26 +1232,31 @@ int main(void)
     glLineWidth(2);
     wlog("running: %dx%d, lens-centred, roll %.1f° / %.1f°", W, H, roll[0] * 180 / M_PI, roll[1] * 180 / M_PI);
 
-    unsigned frame = 0, frames = 0;
-    double last = world_time(), report = last, busy = 0, copying = 0, interval = 1.0 / FRAME_RATE;
+    pthread_t display;
+    if (pthread_create(&display, NULL, display_thread, NULL) != 0) {
+        wlog("the display thread didn't start");
+        return 1;
+    }
+    unsigned drawn = 0;
+    double last = world_time(), report = last, drawing_time = 0, interval = 1.0 / FRAME_RATE;
     while (running) {
-        double t = world_time();
         control_poll(control);
+        if (drawing_pbo >= 0) {   /* a frame is on the GPU: wait a little for it, then look for commands again */
+            drawn += frame_collect(4000000);
+            continue;
+        }
+        double t = world_time();   /* the GPU is free: draw the next frame, for when it will be seen */
         ext_frame((float)(t - last));
         interval += (fmin(t - last, 0.2) - interval) * 0.1;
         last = t;
-        head_pose(fmin(PREDICT_FRAMES * interval + PREDICT_EXTRA, PREDICT_MAX), head_rotation, head_centre);
+        head_pose(fmin(interval + DISPLAY_AHEAD, PREDICT_MAX), head_rotation, head_centre);
         glClearColor(background[0], background[1], background[2], 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         for (int eye = 0; eye < 2; eye++)
             draw_eye(eye, (float)t);
         gles_frame_drawn();
-        copying += present(frame++);
-        frames++;
-        busy += world_time() - t;
-        double wait = t + 1.0 / FRAME_RATE - world_time();
-        if (wait > 0)
-            usleep((useconds_t)(wait * 1e6));
+        frame_submit();
+        drawing_time += world_time() - t;
         if (world_time() - report >= 10) {
             int gpu_busy = -1;
             FILE *g = fopen("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "r");
@@ -1158,10 +1265,13 @@ int main(void)
                     gpu_busy = -1;
                 fclose(g);
             }
-            wlog("%.1f fps; per frame %.1f ms busy, of which %.1f ms showing it (%.1f waiting for the GPU, %.1f copying); "
-                 "GPU %d%% busy", frames / (world_time() - report), 1000 * busy / frames, 1000 * copying / frames,
-                 1000 * waiting_total / frames, 1000 * copying_total / frames, gpu_busy);
-            report = world_time(), frames = 0, busy = copying = waiting_total = copying_total = 0;
+            double span = world_time() - report;
+            unsigned shown_count = refreshes;
+            wlog("%.1f frames drawn and %.1f shown a second (reprojected in between); %.1f ms a frame to submit, "
+                 "%.1f ms a refresh copying and flipping; GPU %d%% busy", drawn / span, shown_count / span,
+                 drawn ? 1000 * drawing_time / drawn : 0, shown_count ? 1000 * copying / shown_count : 0, gpu_busy);
+            report = world_time(), drawn = 0, drawing_time = 0;
+            refreshes = 0, copying = 0;
             double hot = soc_temperature();
             if (gpu_fast && hot > HOT_C) {
                 gpu_floor(GPU_GOVERNED);
@@ -1174,6 +1284,7 @@ int main(void)
             }
         }
     }
+    pthread_join(display, NULL);
     gpu_floor(GPU_GOVERNED);
     unlink(OWNER_PATH);
     unlink(SOCKET_PATH);
