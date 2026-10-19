@@ -50,9 +50,9 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
 - One extension per thing that changes on its own (the dog, the cat, the ducks, the village): loading
   a new version reloads only that one, and everything else carries on. They see each other's objects
   (object_find, object_get_transform) and share values (remember, recall).
-- Keep state: remember() it in on_unload() and recall() it in on_load(), so a new version carries on
-  where the old one was (the dog where it had walked to) instead of starting again. The memory
-  outlives world restarts too.
+- Keep state: put an extension's state in one struct and call keep("name", &state, sizeof state) once
+  in on_load(). A new version then carries on where the old one was (the dog where it had walked to)
+  instead of starting again, and so does the whole scene after a world restart.
 - Textures: generate_texture (an image generator on the network paints one from a description) or
   fetch_texture (any image URL, e.g. CC0 textures from Poly Haven or ambientCG); then
   texture_load("name") in an extension. texture_create takes pixels an extension makes itself.

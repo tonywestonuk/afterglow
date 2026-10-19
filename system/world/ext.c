@@ -16,6 +16,8 @@
 #define LOAD_BUDGET 2000000000   /* instructions for on_load: several seconds in the interpreter */
 #define FRAME_BUDGET 100000000   /* and for each on_frame */
 #define STACK_SIZE (256 * 1024)
+#define MAX_KEPT 16              /* variables an extension asks the world to keep (keep()) */
+#define MAX_KEPT_SIZE 65536
 
 struct extension {
     int used, failed, id;   /* id: whose things are whose in the world; never reused */
@@ -26,6 +28,8 @@ struct extension {
     wasm_module_inst_t inst;
     wasm_exec_env_t env;
     wasm_function_inst_t on_frame;
+    struct { char key[64]; uint32_t offset, size; } kept[MAX_KEPT];   /* in the extension's memory */
+    int kept_count;
 };
 
 static struct extension extensions[MAX_EXTENSIONS];
@@ -188,6 +192,46 @@ static int32_t x_remember(wasm_exec_env_t env, const char *key, const uint8_t *d
     return noted(world_remember(key, data, (int)size));
 }
 
+/* keep(): fill the variable from the world's memory now, and keep it there from now on */
+static int32_t x_keep(wasm_exec_env_t env, const char *key, uint8_t *data, uint32_t size)
+{
+    if (size > MAX_KEPT_SIZE || strlen(key) >= sizeof(current->kept[0].key) || !key[0]) {
+        snprintf(current->problem, sizeof(current->problem), "keep: a key of 1 to 63 characters and up to %d bytes",
+                 MAX_KEPT_SIZE);
+        return -1;
+    }
+    int i = 0;
+    while (i < current->kept_count && strcmp(current->kept[i].key, key) != 0)
+        i++;
+    if (i == MAX_KEPT) {
+        snprintf(current->problem, sizeof(current->problem), "keep: at most %d variables an extension", MAX_KEPT);
+        return -1;
+    }
+    if (i == current->kept_count)
+        current->kept_count++;
+    snprintf(current->kept[i].key, sizeof(current->kept[i].key), "%s", key);
+    current->kept[i].offset = wasm_runtime_addr_native_to_app(wasm_runtime_get_module_inst(env), data);
+    current->kept[i].size = size;
+    return world_recall(key, data, (int)size);
+}
+
+/* Copy an extension's kept variables into the world's memory */
+static void save_kept(struct extension *e)
+{
+    for (int i = 0; e->inst && i < e->kept_count; i++) {
+        uint32_t offset = e->kept[i].offset, size = e->kept[i].size;
+        if (wasm_runtime_validate_app_addr(e->inst, offset, size))
+            world_remember(e->kept[i].key, wasm_runtime_addr_app_to_native(e->inst, offset), (int)size);
+    }
+}
+
+void ext_keep_all(void)
+{
+    for (int i = 0; i < MAX_EXTENSIONS; i++)
+        if (extensions[i].used && !extensions[i].failed)
+            save_kept(&extensions[i]);
+}
+
 static int32_t x_recall(wasm_exec_env_t env, const char *key, uint8_t *data, uint32_t size)
 {
     (void)env;
@@ -249,6 +293,7 @@ int ext_init(void)
         { "head_pose", (void *)x_head_pose, "(ii)i", NULL },
         { "remember", (void *)x_remember, "($*~)i", NULL },
         { "recall", (void *)x_recall, "($*~)i", NULL },
+        { "keep", (void *)x_keep, "($*~)i", NULL },
         { "object_get_transform", (void *)x_object_get_transform, "(ii)i", NULL },
         { "set_background", (void *)x_set_background, "(fff)i", NULL },
         { "world_seconds", (void *)x_world_seconds, "()F", NULL },
@@ -349,8 +394,10 @@ static struct extension *find(const char *name)
 
 static void stop_extension(struct extension *e)
 {
-    if (e->inst && !e->failed)
+    if (e->inst && !e->failed) {
         call(e, "on_unload", 0, NULL, FRAME_BUDGET);
+        save_kept(e);   /* after on_unload, which may have tidied them */
+    }
     destroy(e);
 }
 

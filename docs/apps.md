@@ -115,8 +115,12 @@ one extension, because the API gave an extension no way to see another's objects
   things.
 - When the world stops, every extension's `on_unload()` runs, so restarting the world (as a new world
   program needs) loses nothing an extension kept.
+- `keep(key, &state, sizeof state)`, once in `on_load()`, is the easy way: the variable is filled from
+  the memory at once, and the world itself copies it back whenever that extension is replaced or
+  unloaded, the world stops, and every 10 s. No `on_unload()` code, nothing to forget.
 
-Tested: a counter carried from v1 to v2 (frame 106 on) and through a world restart (frame 230 on).
+Tested: a counter carried from v1 to v2 (frame 106 on) and through a world restart (frame 230 on), by
+hand with remember/recall and with keep alone.
 
 ## Tilting, not yet (2026-10-19)
 

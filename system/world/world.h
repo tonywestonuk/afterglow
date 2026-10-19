@@ -95,6 +95,8 @@ int ext_unload(const char *name, char *reply, size_t size);
 void ext_list(char *reply, size_t size);
 /* As the world stops: every extension's on_unload(), so they can keep their state */
 void ext_unload_all(void);
+/* Copy every extension's kept variables (keep()) into the world's memory */
+void ext_keep_all(void);
 /* Every loaded extension's on_frame(dt); one that fails is unloaded */
 void ext_frame(float dt);
 

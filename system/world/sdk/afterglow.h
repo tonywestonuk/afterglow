@@ -113,6 +113,18 @@ AG_IMPORT(object_get_transform) int object_get_transform(int object, float matri
  */
 AG_IMPORT(remember) int remember(const char *key, const void *data, int size);
 AG_IMPORT(recall) int recall(const char *key, void *data, int size);
+/*
+ * The easy way: keep a variable (best, one struct with all your state) across versions and restarts.
+ * Call it once in on_load(), after setting the variable's starting values: it's filled from what was
+ * kept (keep returns how many bytes, or -1 the first time, when it stays as you set it), and from then
+ * on the world keeps it by itself, whenever this version is replaced or the world stops (and every
+ * 10 s). Key it with the extension's name ("cat", or "cat.state"). Up to 16 an extension, 64 KB each;
+ * change the key if the variable's layout changes.
+ *
+ *   static struct { vec3 at; float heading; int mood; } cat = { { 2, 0, -3 }, 0, CALM };
+ *   void on_load(void) { keep("cat", &cat, sizeof cat); ... }
+ */
+AG_IMPORT(keep) int keep(const char *key, void *data, int size);
 
 /* The colour behind everything */
 AG_IMPORT(set_background) int set_background(float r, float g, float b);

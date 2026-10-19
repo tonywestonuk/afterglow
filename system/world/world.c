@@ -1498,6 +1498,7 @@ int main(void)
                  1000 * slowest_copy, 1000 * turn_rows_max, 1000 * turn_wake_max, drawn ? 1000 * drawing_time / drawn : 0,
                  gpu_busy);
             missed = turned = 0, slowest_copy = turn_rows_max = turn_wake_max = 0;
+            ext_keep_all();   /* so a crash or power-off loses at most 10 s */
             memory_save(memory_path);   /* if anything changed */
             report = world_time(), drawn = 0, drawing_time = 0;
             refreshes = 0, copying = 0;
