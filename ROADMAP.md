@@ -52,8 +52,13 @@ Design principles:
 - [x] USB serial console: live kernel log and commands ([tools/console.py](tools/console.py))
 - [x] Development shell over USB (BusyBox); hardware survey ([docs/hardware.md](docs/hardware.md))
 - [ ] Text console on the displays
-- [ ] Start the Snapdragon's subsystems and load their firmware (adsp, modem, a540_zap): the key to
-      Wi-Fi, audio and the GPU
+- [x] Start the Snapdragon's subsystems and load their firmware (adsp, modem, a540_zap): the key to
+      Wi-Fi, audio and the GPU ([how](docs/hardware.md#subsystems-and-wi-fi-without-android))
+- [x] Wi-Fi: scan, join (WPA2), DHCP, DNS, with upstream `wpa_supplicant`
+- [ ] Keep settings (Wi-Fi networks, country) across restarts: needs a writable afterglow partition
+- [ ] Replace Qualcomm's Android helper programs with open ones (linux-msm's `pd-mapper`,
+      `tqftpserv`, `rmtfs`), so afterglow doesn't need the `system` partition. They use QRTR sockets;
+      Meta's kernel has the older IPC Router (`CONFIG_IPC_ROUTER`), so they'd need porting
 - [ ] Get frames from the tracking cameras (`/dev/video*` are already there)
 - [ ] Boot a minimal Linux userspace (postmarketOS-style "downstream" port on Meta's kernel)
 - [ ] USB networking (NCM is already enabled in Meta's kernel config)
@@ -84,7 +89,7 @@ Design principles:
 
 - [ ] 3DoF head tracking from the motion sensor
 - [ ] GPU (Adreno 540; Mesa freedreno as reference)
-- [ ] Wi-Fi and Bluetooth
+- [ ] Bluetooth (Wi-Fi: done in Phase 1)
 - [ ] Controllers (the Rift S shares them; see Monado's Rift S driver)
 - [ ] 6DoF tracking with open SLAM (Basalt via Monado)
 - [ ] Mainline Linux

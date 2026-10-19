@@ -29,6 +29,9 @@ Done so far:
   for the panels' 180° rotation and per-headset roll, plus button input ([system](system/README.md),
   [brand](brand/README.md)).
 - A USB serial console with the live kernel log and a shell on the headset.
+- **Wi-Fi, still with no Android running**: the Snapdragon's audio DSP, GPU and modem DSP started with
+  their firmware, and the headset joins a WPA2 network and reaches the internet
+  ([how](docs/hardware.md#subsystems-and-wi-fi-without-android)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 
@@ -59,7 +62,7 @@ Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs
 | `kernel/configs/` | The exact config of Meta's running Quest 1 kernel (from `/proc/config.gz`) |
 | `kernel/build/` | Reproducible kernel build (Docker, Meta's GCC 4.9) and boot-image packaging |
 | `kernel/patches/` | afterglow's kernel changes (GPL-2.0) |
-| `system/` | afterglow's `/init`: boot animation, display, buttons, calibration |
+| `system/` | afterglow's `/init` (boot animation, display, buttons, calibration), subsystem and Wi-Fi bring-up, third-party userspace build |
 | `brand/` | Logo, the 3D boot animation scene (Blender Python), fonts |
 | `tools/pack_anim.py`, `tools/make_calibration_frames.py` | Pack rendered frames for the headset; calibration test patterns |
 | `docs/` | Hardware notes and procedures |
@@ -67,7 +70,10 @@ Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs
 ## Licence
 
 afterglow's own code is [MIT](LICENSE). Changes to the Linux kernel are GPL-2.0, like the kernel itself.
-Boot images also include BusyBox (GPL-2.0), built from its upstream release by `kernel/build/Dockerfile`.
+Boot images also include third-party programs built from their upstream releases by
+`system/third_party/Dockerfile`: BusyBox (GPL-2.0) and wpa_supplicant (BSD-3-Clause), statically linked
+with musl (MIT), libnl (LGPL-2.1) and OpenSSL (Apache-2.0); their licences are in the image under
+`/usr/share/licenses`.
 Meta's firmware is not ours to distribute; tools extract it from each user's own headset or from Meta's
 official update files.
 

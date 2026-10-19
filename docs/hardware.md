@@ -6,7 +6,8 @@ Everything here was read from a retail Quest 1 (firmware `49845030443200410`) un
 
 | | |
 |---|---|
-| SoC | Qualcomm Snapdragon 835 (`msm8998`; the modem-less `apq8998` variant) |
+| SoC | Qualcomm Snapdragon 835 (`msm8998`; the `apq8998` variant: its modem DSP has no cellular radio, but runs the Wi-Fi firmware) |
+| Wi-Fi | Qualcomm WCN3990-family, `icnss` driver (firmware reports chip_id `0x30214`), 2.4 and 5 GHz, 802.11ac 2×2 |
 | Board | `vs1 pvt b (SDC)` (Meta's codename for the headset is `monterey`) |
 | RAM | 4 GB (3.9 GB visible) |
 | Storage | UFS, six LUNs `sda`–`sdf`; 64 GB model has a 51 GB `userdata` |
@@ -106,15 +107,74 @@ Surveyed from afterglow's shell (2026-10-18), with Meta's kernel config and no A
 | CPU | Up | 8 cores: 4 at 1.9 GHz, 4 at 2.3 GHz |
 | Display, buttons | Up | See above |
 | Cameras | Driver loaded | `/dev/video0–6`, `video32/33`, 14 `v4l-subdev`s (Qualcomm camera stack) |
-| GPU (Adreno 540) | Driver loaded | `kgsl-3d0`; needs firmware and the `a540_zap` subsystem |
-| Wi-Fi | Absent | No `wlan0`; needs firmware and the modem/WLAN subsystem |
-| Audio | Absent | No ALSA card; needs the `adsp` subsystem |
+| GPU (Adreno 540) | Driver loaded | `kgsl-3d0`; needs firmware and the `a540_zap` subsystem (see below: now started) |
+| Wi-Fi | Absent | No `wlan0`; needs firmware and the modem/WLAN subsystem (see below: now working) |
+| Audio | Absent | No ALSA card; needs the `adsp` subsystem (see below: now started) |
 | Bluetooth | Absent | Needs firmware over its serial link |
 | Motion sensor | Not visible | Only the PMIC's battery ADC is under IIO; the IMU is probably behind a microcontroller Meta's userspace drives |
 
 The Snapdragon's subsystems (`/sys/bus/msm_subsys`: `adsp`, `modem`, `venus`, `spss`, `ipa_fws`,
 `a540_zap`) are all offline: Android's init starts them and loads their firmware. Memory in use with
 afterglow's `/init`, BusyBox and the boot animation running: about 200 MB of 3.8 GB.
+
+## Subsystems and Wi-Fi without Android
+
+Confirmed 2026-10-19: `system/scripts/bringup.sh` starts the subsystems the way Android's init does
+(`init.monterey.rc`), using firmware and Qualcomm's helper programs in place from the headset's own
+`modem` and `system` partitions, mounted read-only. Anything they write goes to RAM.
+
+| Subsystem | Started by | Result |
+|---|---|---|
+| Audio DSP (`adsp`) | `echo 1 > /sys/kernel/boot_adsp/boot` | Online; ALSA card `msm8998-cm710x_pvt_revB-snd_card`. Playback untested |
+| GPU (`a540_zap`) | Opening `/dev/kgsl-3d0` | `Adreno540v2`, microcode and zap shader loaded. No userspace GPU driver yet |
+| Modem DSP (`modem`) | Qualcomm's Peripheral Manager (`pm-service`, `pm-proxy`) | Stable. No cellular radio: it hosts the Wi-Fi firmware as a "user protection domain" (`wlan_pd`) |
+| Wi-Fi | `echo 1 > /sys/kernel/boot_wlan/boot_wlan`, with `cnss-daemon` | `wlan0` 15 s after the kernel starts. Scans both bands; joins WPA2 networks; DHCP, DNS and HTTP work |
+
+What the modem and Wi-Fi need, each found by comparing with stock Android (its kernel log, logcat
+and IPC Router state, read as root):
+
+1. **Firmware path.** The `modem` partition (FAT) mounted at `/vendor/firmware_mnt`, and
+   `firmware_class.path=/vendor/firmware_mnt/image`.
+2. **`restart_level=RELATED`** on each subsystem. The default restarts the whole headset when one crashes.
+3. **The modem's settings filesystem (EFS)**, served by `rmt_storage` from `modemst1`, `modemst2`, `fsg`
+   and `fsc`. `rmt_storage` writes to them, so afterglow gives it loop devices over RAM copies.
+4. **`tftp_server`**, which serves the DSPs files from `/vendor/rfs`. The modem crashes if it can't
+   write there (it first writes `readwrite/server_check.txt`); afterglow's tree has its writable
+   folders in RAM, owned by `vendor_rfs` (2903) and group `vendor_rfs_shared` (2904).
+5. **`pd-mapper`**, the service locator (QMI service `0x40`). Without it the Wi-Fi user-PD announces
+   itself, nothing acknowledges it, and the modem crashes about 40 s later ("User-PD grace timer expired").
+6. **IPC Router security rules**, loaded by `irsc_util /vendor/etc/sec_config`. Until they're loaded,
+   the kernel only lets the `net_raw` group reach the DSPs' services. `tftp_server` drops root, so the
+   modem's requests reach it but its replies are dropped, and the Wi-Fi firmware (`wlanmdsp.mbn`,
+   3.2 MB) is never delivered.
+7. **`cnss-daemon`** downloads the board data (`bdwlan.bin`) once the Wi-Fi firmware's QMI service is
+   up; the firmware reports ready about 2.5 s later and the driver creates `wlan0`. It needs the
+   folders under `/data/vendor/wifi` that Android's init makes. It also asks for `regdb.bin`, which
+   isn't on the headset; that does no harm.
+8. **Regulatory country.** The driver starts with US rules. `wpa_supplicant` sets the real country
+   (`wifi.sh country GB`), which the kernel confirms ("Regulatory domain changed to country: GB").
+
+Running Android's programs without Android:
+
+- They run from the read-only `system` partition, bind-mounted at `/system` and `/vendor` (not
+  symlinked: Android's linker picks its library namespace from a binary's real path), with the runtime
+  APEX bind-mounted at `/apex/com.android.runtime`.
+- There's no property service, so the linker can't choose its config (`ld.config.29.txt`) and falls
+  back to `/system/lib64` and `/vendor/lib64`. Programs that need VNDK libraries (`cnss-daemon`) get
+  `LD_LIBRARY_PATH=/system/lib64/vndk-29:/system/lib64/vndk-sp-29`.
+- Several drop root after starting, so `/dev/null`, `/dev/urandom` and the binder nodes must be
+  world-usable (0666), as Android's `ueventd.rc` makes them.
+- Their logs go to `/dev/socket/logdw`; afterglow's `logdw` forwards them to the kernel log. Android's
+  logging drops messages rather than wait, so the socket queue limit is raised to 600
+  (`net.unix.max_dgram_qlen`), as Android's `init.rc` does.
+- Android's own `wpa_supplicant` can't be used. It switches to the `wifi` user and registers with
+  Android's HIDL service manager, which waits forever for the `hwservicemanager.ready` property.
+  afterglow uses upstream `wpa_supplicant` 2.12 instead (`system/third_party`).
+
+Measured on a home network (2026-10-19): 21 networks in range across 2.4 and 5 GHz; joined at
+WPA2-PSK on 5 GHz, link rate 866 Mbit/s at -40 dBm; a 64 MB HTTP download from a Mac took 10.2 s
+(about 6.3 MB/s, served by Python's single-threaded `http.server`, so a lower bound). Ping to the
+internet: 12–115 ms, probably raised by Wi-Fi power saving (untested).
 
 ## Boot screens
 

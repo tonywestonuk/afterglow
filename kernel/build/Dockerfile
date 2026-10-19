@@ -36,22 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc-aarch64-lin
 RUN curl -fsSL -o /tmp/zstd.tar.gz https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz \
     && echo "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3  /tmp/zstd.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/zstd.tar.gz -C /opt && mv /opt/zstd-1.5.7 /opt/zstd && rm /tmp/zstd.tar.gz
-
-# BusyBox (GPL-2.0) for afterglow's development shell: static aarch64, from the upstream 1.37.0
-# release as mirrored by Debian (busybox.net is often unreachable). Left out: tc, which often fails
-# to build against newer kernel headers, and the SHA hardware acceleration, which is x86-only but
-# 1.37 compiles regardless of target
-RUN apt-get update && apt-get install -y --no-install-recommends bzip2 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL -o /tmp/busybox.tar.bz2 https://deb.debian.org/debian/pool/main/b/busybox/busybox_1.37.0.orig.tar.bz2 \
-    && echo "3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4  /tmp/busybox.tar.bz2" | sha256sum -c - \
-    && tar -xjf /tmp/busybox.tar.bz2 -C /tmp && cd /tmp/busybox-1.37.0 \
-    && make defconfig > /dev/null \
-    && sed -i -e 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' -e 's/^CONFIG_TC=y/# CONFIG_TC is not set/' \
-              -e 's/^CONFIG_SHA1_HWACCEL=y/# CONFIG_SHA1_HWACCEL is not set/' \
-              -e 's/^CONFIG_SHA256_HWACCEL=y/# CONFIG_SHA256_HWACCEL is not set/' .config \
-    && make -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu- busybox busybox.links > /dev/null \
-    && mkdir -p /opt/busybox && cp busybox busybox.links /opt/busybox/ && aarch64-linux-gnu-strip /opt/busybox/busybox \
-    && cd / && rm -rf /tmp/busybox*
+# (BusyBox and other third-party userspace: system/third_party, native arm64 on musl)
 
 ENV PATH=/opt/aarch64-linux-android-4.9/bin:/opt/arm-linux-androideabi-4.9/bin:$PATH \
     ARCH=arm64 \

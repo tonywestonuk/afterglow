@@ -251,9 +251,16 @@ int main(void)
     mount("tmpfs", "/dev", "tmpfs", 0, "mode=0755");
     mount("tmpfs", "/tmp", "tmpfs", 0, "mode=1777");
     make_node("/dev/kmsg", 1, 11);
-    make_node("/dev/null", 1, 3);
     make_node("/dev/console", 5, 1);
-    make_node("/dev/tty", 5, 0);
+    /* Usable by everyone, as on any Linux system: Android daemons that drop root need them */
+    static const struct { const char *path; unsigned major, minor; } shared[] = {
+        { "/dev/null", 1, 3 }, { "/dev/zero", 1, 5 }, { "/dev/full", 1, 7 },
+        { "/dev/random", 1, 8 }, { "/dev/urandom", 1, 9 }, { "/dev/tty", 5, 0 },
+    };
+    for (size_t i = 0; i < sizeof(shared) / sizeof(shared[0]); i++) {
+        make_node(shared[i].path, shared[i].major, shared[i].minor);
+        chmod(shared[i].path, 0666);
+    }
     kmsg_fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
     klog("init started");
     if (usb_console_start() != 0)
