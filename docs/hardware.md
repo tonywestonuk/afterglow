@@ -141,7 +141,7 @@ Confirmed 2026-10-19: `system/scripts/bringup.sh` starts the subsystems the way 
 | Subsystem | Started by | Result |
 |---|---|---|
 | Audio DSP (`adsp`) | `echo 1 > /sys/kernel/boot_adsp/boot` | Online; ALSA card `msm8998-cm710x_pvt_revB-snd_card`. Playback untested |
-| GPU (`a540_zap`) | Opening `/dev/kgsl-3d0` | `Adreno540v2`, microcode and zap shader loaded. No userspace GPU driver yet |
+| GPU (`a540_zap`) | Opening `/dev/kgsl-3d0` | `Adreno540v2`, microcode and zap shader loaded. Qualcomm's OpenGL ES 3.2 driver renders ([docs/apps.md](apps.md#the-gpu-proven-2026-10-19)) |
 | Modem DSP (`modem`) | Qualcomm's Peripheral Manager (`pm-service`, `pm-proxy`) | Stable. No cellular radio: it hosts the Wi-Fi firmware as a "user protection domain" (`wlan_pd`) |
 | Wi-Fi | `echo 1 > /sys/kernel/boot_wlan/boot_wlan`, with `cnss-daemon` | `wlan0` 15 s after the kernel starts. Scans both bands; joins WPA2 networks; DHCP, DNS and HTTP work |
 

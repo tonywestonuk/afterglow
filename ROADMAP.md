@@ -68,12 +68,18 @@ Design principles:
 - [ ] SSH / shell over USB
 - [ ] Read Meta's factory display calibration correctly (roll units, decentre)
 
-## Phase 2 — The app platform
+## Phase 2 — The app platform: live worlds ([design](docs/apps.md))
 
-- [ ] Arduino-style app API: `setup()`, `loop()`, `millis()`, drawing, buttons
-- [ ] Apps as files, loaded at runtime, isolated from the OS
-- [ ] Stereo rendering helpers (one image per eye)
-- [ ] JavaScript apps via QuickJS with instant reload
+An app is a running world that code is added to while it runs: "make the floor grass", and Claude's
+grass extension is compiled and linked in without the world stopping.
+
+- [x] 3D on the GPU: Qualcomm's OpenGL ES 3.2 driver runs under afterglow (stereo wireframe floor, 4 ms/frame)
+- [ ] Frames straight to the panels (today a 32 ms copy), centred on the lenses, distortion-corrected
+- [ ] The world: render loop, entities, versioned API (meshes, shaders, materials, input, time)
+- [ ] Extensions as WebAssembly (WAMR), with `on_load()`/`on_frame()`/`on_unload()`, hot-swapped
+      between frames; a crashing extension is disabled, not the world
+- [ ] afterglowd tools: `load_extension`, `list_extensions`, `undo`; versions kept on `/storage`
+- [ ] Voice: "make the floor grass" said in the headset
 
 ## Phase 3 — Claude-native
 
@@ -93,7 +99,7 @@ Design principles:
 ## Phase 5+ — Toward feature parity
 
 - [ ] 3DoF head tracking from the motion sensor
-- [ ] GPU (Adreno 540; Mesa freedreno as reference)
+- [ ] An open GPU driver (Mesa freedreno, with mainline Linux); Qualcomm's runs today
 - [ ] Bluetooth (Wi-Fi: done in Phase 1)
 - [ ] Controllers (the Rift S shares them; see Monado's Rift S driver)
 - [ ] 6DoF tracking with open SLAM (Basalt via Monado)

@@ -38,6 +38,8 @@ Done so far:
   its pairing across restarts ([docs/storage.md](docs/storage.md)).
 - **It comes up by itself**: about 30 s after `fastboot boot` it's on Wi-Fi with afterglowd answering, and
   the boot animation gives way to a status screen.
+- **3D on the GPU**: Qualcomm's OpenGL ES 3.2 driver runs on the Adreno 540 under afterglow. Next: apps
+  as live worlds that Claude extends while they run ([docs/apps.md](docs/apps.md)).
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 

@@ -9,7 +9,7 @@
 #   storage  afterglow's own storage at /storage (kept across restarts), if the headset has it
 #   ssr      a crashing subsystem restarts on its own instead of restarting the headset
 #   adsp     audio DSP (sound card)
-#   gpu      Adreno 540 (microcode and zap shader load on first open)
+#   gpu      Adreno 540 (microcode and zap shader load on first open), ready for Qualcomm's GL driver
 #   cnss     Qualcomm's cnss-daemon, which downloads the Wi-Fi board data once its firmware is up
 #   efs      Qualcomm's rmt_storage on RAM copies of the modem's settings partitions
 #   tftp     Qualcomm's tftp_server, which serves the DSPs their files (incl. Wi-Fi firmware)
@@ -160,8 +160,14 @@ adsp() {
 }
 
 gpu() {
-    char_node /sys/class/kgsl/kgsl-3d0/dev /dev/kgsl-3d0 && (exec 3<>/dev/kgsl-3d0) &&
-        log "GPU opened: $(cat /sys/class/kgsl/kgsl-3d0/gpu_model)"
+    char_node /sys/class/kgsl/kgsl-3d0/dev /dev/kgsl-3d0 && (exec 3<>/dev/kgsl-3d0) || return 1
+    log "GPU opened: $(cat /sys/class/kgsl/kgsl-3d0/gpu_model)"
+    # For Qualcomm's OpenGL ES driver (system/gpu): the ION memory allocator, and Qualcomm's gralloc where
+    # Android's HAL loader looks when there are no system properties to name it (gralloc.default.so).
+    # A bind mount in RAM: the partition isn't changed.
+    char_node /sys/class/misc/ion/dev /dev/ion
+    mounted /vendor/lib64/hw/gralloc.default.so ||
+        mount --bind /vendor/lib64/hw/gralloc.msm8998.so /vendor/lib64/hw/gralloc.default.so
 }
 
 # Qualcomm's protection domain mapper: hosts the service locator (QMI service 0x40), built from the
