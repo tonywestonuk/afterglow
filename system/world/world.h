@@ -72,6 +72,9 @@ void head_recentre(void);
  * eyes; 1 if tracked */
 int head_pose(double ahead, float rotation[9], float centre[3]);
 void head_quaternion(double ahead, float xyzw[4]);
+double head_sample_age(void);
+/* Run this thread on cores first..last (4-7 are the fast ones) at a real-time priority */
+void pin_thread(int first_core, int last_core, int priority);
 
 /* Extensions (ext.c). Results go in reply, one or more lines. */
 int ext_init(void);

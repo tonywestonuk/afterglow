@@ -110,7 +110,10 @@ and the prediction needed (about 64 ms) made it jitter.
 threads. The main thread draws frames as fast as the scene allows (the village: 34-40 a second); the
 display thread shows the newest finished frame at every refresh, 72 a second, slid by the head's turn
 since that frame was drawn (yaw sideways, pitch up and down, in the copy it makes anyway; roll is
-ignored). Prediction is down to one refresh (19 ms). Moving things in a scene still update at the
+ignored). Prediction is down to one refresh (19 ms). The display thread runs on a fast core (7) at a
+real-time priority: left to the scheduler it sometimes landed on a slow core, the copy took a whole
+refresh (14 ms instead of 4-5), and a refresh was missed about once a second, a visible hitch. Pinned,
+none in minutes of running; each miss is logged with its timings. Moving things in a scene still update at the
 drawing rate. A scene needs under about 11 ms of GPU a frame to be drawn at 72; the world's log line
 gives frames drawn and shown a second and the GPU's busy share every 10 s.
 

@@ -19,6 +19,7 @@
 #include <linux/fb.h>
 #include <math.h>
 #include <poll.h>
+#include <sched.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -1036,24 +1037,56 @@ static void frame_copy(const float now_rotation[9])
 }
 
 /* The display thread: at every refresh, the newest frame for the head as it is then */
+static unsigned missed;   /* refreshes that came and went without a new picture */
+
+/* A thread on the given cores, at a real-time priority (higher runs first), so that it isn't moved to a
+ * slow core or kept waiting at the wrong moment */
+void pin_thread(int first_core, int last_core, int priority)
+{
+    cpu_set_t cores;
+    CPU_ZERO(&cores);
+    for (int c = first_core; c <= last_core; c++)
+        CPU_SET(c, &cores);
+    struct sched_param param = { .sched_priority = priority };
+    if (sched_setaffinity(0, sizeof(cores), &cores) != 0 || pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0)
+        wlog("pinning a thread: %s", strerror(errno));
+}
+
 static void *display_thread(void *arg)
 {
     (void)arg;
-    double last = now();
+    /* The copy must be done within a refresh: on a fast core (4-7 are the 2.3 GHz ones), ahead of all else */
+    pin_thread(7, 7, 50);
+    double last = now(), flipped = 0;
+    unsigned logged = 0;
+    const uint8_t *previous = NULL;
     while (running) {
         float now_rotation[9], centre[3];
+        double imu_age = head_sample_age();
         head_pose(DISPLAY_AHEAD, now_rotation, centre);
         double c0 = now();
         pthread_mutex_lock(&shown_lock);
-        int have = shown != NULL;
+        double c1 = now();
+        int have = shown != NULL, fresh = shown != previous;
+        previous = shown;
         if (have)
             frame_copy(now_rotation);
         pthread_mutex_unlock(&shown_lock);
         if (have) {
+            double c2 = now();
             fb.var.yoffset = fb.page * H;
             ioctl(fb.fd, FBIOPAN_DISPLAY, &fb.var);   /* waits for the refresh */
-            copying += now() - c0;
+            double c3 = now();
+            copying += c3 - c0;
             refreshes++;
+            if (flipped > 0 && c3 - flipped > 1.5 / FRAME_RATE) {
+                missed++;
+                if (logged++ < 20)   /* the first few, to see what they have in common */
+                    wlog("missed a refresh: %.1f ms since the last flip; waited %.1f ms for the frame, copied in %.1f "
+                         "(%s), flipped in %.1f; IMU sample %.1f ms old", 1000 * (c3 - flipped), 1000 * (c1 - c0),
+                         1000 * (c2 - c1), fresh ? "its first copy" : "copied before", 1000 * (c3 - c2), 1000 * imu_age);
+            }
+            flipped = c3;
         }
         double wait = last + 1.0 / FRAME_RATE - 0.002 - now();   /* in case flipping doesn't wait */
         if (!have || wait > 0)
@@ -1232,6 +1265,7 @@ int main(void)
     glLineWidth(2);
     wlog("running: %dx%d, lens-centred, roll %.1f° / %.1f°", W, H, roll[0] * 180 / M_PI, roll[1] * 180 / M_PI);
 
+    pin_thread(4, 6, 20);   /* drawing: the fast cores, but never ahead of showing */
     pthread_t display;
     if (pthread_create(&display, NULL, display_thread, NULL) != 0) {
         wlog("the display thread didn't start");
@@ -1267,9 +1301,11 @@ int main(void)
             }
             double span = world_time() - report;
             unsigned shown_count = refreshes;
-            wlog("%.1f frames drawn and %.1f shown a second (reprojected in between); %.1f ms a frame to submit, "
-                 "%.1f ms a refresh copying and flipping; GPU %d%% busy", drawn / span, shown_count / span,
-                 drawn ? 1000 * drawing_time / drawn : 0, shown_count ? 1000 * copying / shown_count : 0, gpu_busy);
+            wlog("%.1f frames drawn and %.1f shown a second (reprojected in between; %u refreshes missed); %.1f ms a "
+                 "frame to submit, %.1f ms a refresh copying and flipping; GPU %d%% busy", drawn / span,
+                 shown_count / span, missed, drawn ? 1000 * drawing_time / drawn : 0,
+                 shown_count ? 1000 * copying / shown_count : 0, gpu_busy);
+            missed = 0;
             report = world_time(), drawn = 0, drawing_time = 0;
             refreshes = 0, copying = 0;
             double hot = soc_temperature();

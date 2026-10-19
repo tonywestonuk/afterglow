@@ -130,6 +130,7 @@ static int start_imu(int *stream)
 static void *imu_thread(void *arg)
 {
     (void)arg;
+    pin_thread(0, 3, 40);   /* a thousand small samples a second: a slow core will do, but promptly */
     int stream, dev = start_imu(&stream);
     if (dev < 0)
         return NULL;
@@ -218,6 +219,15 @@ static void *imu_thread(void *arg)
     close(stream);
     close(dev);
     return NULL;
+}
+
+/* Seconds since the newest IMU sample arrived (for spotting stalls) */
+double head_sample_age(void)
+{
+    pthread_mutex_lock(&lock);
+    double age = tracking ? world_time() - rate_time : 0;
+    pthread_mutex_unlock(&lock);
+    return age;
 }
 
 int head_start(void)
