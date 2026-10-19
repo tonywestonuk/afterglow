@@ -4,7 +4,9 @@
  * Built with the Android NDK (system/world/build.sh) so it runs on Android's C library and can use
  * Qualcomm's GPU driver. afterglowd starts it and talks to it over /run/afterglow/world.sock, one
  * command per connection, the reply ending when the connection closes:
- *   load NAME PATH    load extension NAME from a WebAssembly file, replacing any loaded version
+ *   load NAME PATH [placeholder]
+ *                     load extension NAME from a WebAssembly file, replacing any loaded version; a
+ *                     placeholder gets a road-works sign beside it until the real thing replaces it
  *   unload NAME
  *   list
  *   quit
@@ -32,11 +34,14 @@
 #include "gles.h"
 #include "world.h"
 
+#include <GLES2/gl2ext.h>   /* after gles.h, which brings in the GL types */
+
 #define W 2880   /* both eyes side by side, as the wearer sees them */
 #define H 1600
 #define EYE_W (W / 2)
 #define SOCKET_PATH "/run/afterglow/world.sock"
 #define OWNER_PATH "/run/afterglow/display-owner"
+#define FONT_PATH "/afterglow/font.ttf"
 
 /* Optics, in screen pixels as the wearer sees them (docs/hardware.md). No lens distortion correction yet. */
 static const float lens_x[2] = { 852, 2028 }, lens_y = 865;
@@ -81,6 +86,7 @@ void wlog(const char *fmt, ...)
 
 #define MAX_MESHES 1024
 #define MAX_SHADERS 256
+#define MAX_TEXTURES 256
 #define MAX_OBJECTS 1024
 #define MAX_UNIFORMS 8
 #define MAX_CHANGES 4096
@@ -90,12 +96,18 @@ struct mesh {
     GLuint vao, vbo, ibo;
     GLsizei count;
     GLenum primitive;
+    float lo[3], hi[3];   /* the box around it */
 };
 
 struct shader {
-    int used, owner;
+    int used, owner, standard;
     GLuint program;
-    GLint mvp, model, time, eye;
+    GLint mvp, model, normal, time, eye, colour, uv_scale, emission, alpha_cut;
+};
+
+struct texture {
+    int used, owner, width, height;
+    GLuint id;
 };
 
 struct uniform {
@@ -105,7 +117,8 @@ struct uniform {
 };
 
 struct object {
-    int used, owner, mesh, shader, visible;
+    int used, owner, mesh, shader, visible, blend, blink;
+    int textures[TEXTURE_SLOTS];
     char name[48];
     float model[16];
     struct uniform uniforms[MAX_UNIFORMS];
@@ -113,7 +126,8 @@ struct object {
 };
 
 /* Something an extension changed but doesn't own, as it was before that extension's first change */
-enum { CHANGE_MESH, CHANGE_SHADER, CHANGE_TRANSFORM, CHANGE_VISIBLE, CHANGE_UNIFORMS, CHANGE_BACKGROUND };
+enum { CHANGE_MESH, CHANGE_SHADER, CHANGE_TRANSFORM, CHANGE_VISIBLE, CHANGE_UNIFORMS, CHANGE_TEXTURES, CHANGE_BLEND,
+       CHANGE_BACKGROUND };
 struct change {
     int ext, kind, object;
     struct object before;
@@ -122,11 +136,16 @@ struct change {
 
 static struct mesh meshes[MAX_MESHES];   /* ids are index + 1; 0 means none */
 static struct shader shaders[MAX_SHADERS];
+static struct texture textures[MAX_TEXTURES];
 static struct object objects[MAX_OBJECTS];
 static struct change changes[MAX_CHANGES];
 static int change_count;
 static float background[3] = { 0.02f, 0.02f, 0.04f };
 static char error[2048];
+static int standard_shader;
+static GLuint white;          /* what an empty texture slot reads: plain white */
+static float anisotropy = 1;  /* the sharpest texture filtering the GPU offers */
+static char texture_dir[256] = "/storage/world/textures";   /* $AFTERGLOW_WORLD_DIR/textures */
 
 static int fail(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static int fail(const char *fmt, ...)
@@ -151,6 +170,11 @@ static struct mesh *mesh_get(int id)
 static struct shader *shader_get(int id)
 {
     return id >= 1 && id <= MAX_SHADERS && shaders[id - 1].used ? &shaders[id - 1] : NULL;
+}
+
+static struct texture *texture_get(int id)
+{
+    return id >= 1 && id <= MAX_TEXTURES && textures[id - 1].used ? &textures[id - 1] : NULL;
 }
 
 static struct object *object_get(int id)
@@ -212,6 +236,13 @@ int world_mesh_create(int ext, const float *vertices, int vertex_count, const ui
     glBindVertexArray(0);
     m->count = index_count ? index_count : vertex_count;
     m->primitive = modes[primitive];
+    for (int k = 0; k < 3; k++)
+        m->lo[k] = INFINITY, m->hi[k] = -INFINITY;
+    for (int i = 0; i < vertex_count; i++)
+        for (int k = 0; k < 3; k++) {
+            m->lo[k] = fminf(m->lo[k], vertices[i * VERTEX_FLOATS + k]);
+            m->hi[k] = fmaxf(m->hi[k], vertices[i * VERTEX_FLOATS + k]);
+        }
     m->owner = ext;
     m->used = 1;
     if (glGetError() != GL_NO_ERROR) {
@@ -274,8 +305,161 @@ int world_shader_create(int ext, const char *vertex_glsl, const char *fragment_g
     }
     shaders[id] = (struct shader){ .used = 1, .owner = ext, .program = p,
                                    .mvp = glGetUniformLocation(p, "u_mvp"), .model = glGetUniformLocation(p, "u_model"),
-                                   .time = glGetUniformLocation(p, "u_time"), .eye = glGetUniformLocation(p, "u_eye") };
+                                   .normal = glGetUniformLocation(p, "u_normal"), .time = glGetUniformLocation(p, "u_time"),
+                                   .eye = glGetUniformLocation(p, "u_eye"), .colour = glGetUniformLocation(p, "u_colour"),
+                                   .uv_scale = glGetUniformLocation(p, "u_uv_scale"),
+                                   .emission = glGetUniformLocation(p, "u_emission"),
+                                   .alpha_cut = glGetUniformLocation(p, "u_alpha_cut") };
+    glUseProgram(p);
+    for (int t = 0; t < TEXTURE_SLOTS; t++) {
+        char name[16];
+        snprintf(name, sizeof(name), "u_texture%d", t);
+        glUniform1i(glGetUniformLocation(p, name), t);
+    }
+    glUseProgram(0);
     return id + 1;
+}
+
+/*
+ * The standard shader, so most things need no GLSL: lit by a sun (high, behind the wearer and a little
+ * to the right) and the sky. Colour: u_colour (default white) x the vertex colour x texture 0 (default
+ * white) at a_uv x u_uv_scale (default 1, 1); plus u_emission (default black) for things that glow.
+ * Solid objects drop pixels whose alpha is under a half (cut-outs such as leaves); normals are turned
+ * to face the eye, so both sides of a surface are lit alike.
+ */
+static int make_standard_shader(void)
+{
+    int id = world_shader_create(0,
+        "#version 300 es\n"
+        "in vec3 a_position;\n"
+        "in vec3 a_normal;\n"
+        "in vec2 a_uv;\n"
+        "in vec4 a_colour;\n"
+        "uniform mat4 u_mvp;\n"
+        "uniform mat4 u_model;\n"
+        "uniform mat3 u_normal;\n"
+        "uniform vec2 u_uv_scale;\n"
+        "out vec3 normal;\n"
+        "out vec3 position;\n"
+        "out vec2 uv;\n"
+        "out vec4 colour;\n"
+        "void main() {\n"
+        "    gl_Position = u_mvp * vec4(a_position, 1.0);\n"
+        "    position = (u_model * vec4(a_position, 1.0)).xyz;\n"
+        "    normal = u_normal * a_normal;\n"
+        "    uv = a_uv * u_uv_scale;\n"
+        "    colour = a_colour;\n"
+        "}\n",
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "uniform vec4 u_colour;\n"
+        "uniform vec3 u_emission;\n"
+        "uniform vec3 u_eye;\n"
+        "uniform float u_alpha_cut;\n"
+        "uniform sampler2D u_texture0;\n"
+        "in vec3 normal;\n"
+        "in vec3 position;\n"
+        "in vec2 uv;\n"
+        "in vec4 colour;\n"
+        "out vec4 fragment;\n"
+        "void main() {\n"
+        "    vec4 base = u_colour * colour * texture(u_texture0, uv);\n"
+        "    if (base.a < u_alpha_cut) discard;\n"
+        "    vec3 n = normalize(normal);\n"
+        "    if (dot(n, u_eye - position) < 0.0) n = -n;\n"
+        "    float sun = max(dot(n, normalize(vec3(0.35, 0.7, 0.62))), 0.0);\n"
+        "    vec3 sky = mix(vec3(0.24, 0.22, 0.20), vec3(0.36, 0.40, 0.47), 0.5 + 0.5 * n.y);\n"
+        "    fragment = vec4(base.rgb * (sky + vec3(1.0, 0.95, 0.86) * 0.78 * sun) + u_emission, base.a);\n"
+        "}\n");
+    if (id < 0) {
+        wlog("the standard shader: %s", error);
+        return -1;
+    }
+    shaders[id - 1].standard = 1;
+    standard_shader = id;
+    return 0;
+}
+
+int world_shader_standard(void)
+{
+    return standard_shader;
+}
+
+/* ---- Textures ---- */
+
+int world_texture_create(int ext, const uint8_t *rgba, int width, int height)
+{
+    if (width < 1 || height < 1 || width > 4096 || height > 4096)
+        return fail("texture_create: 1 to 4096 pixels each way, not %dx%d", width, height);
+    int id = 0;
+    while (id < MAX_TEXTURES && textures[id].used)
+        id++;
+    if (id == MAX_TEXTURES)
+        return fail("no room for more than %d textures", MAX_TEXTURES);
+    GLuint t;
+    glGetError();
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    if (anisotropy > 1)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, anisotropy);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    if (glGetError() != GL_NO_ERROR) {
+        glDeleteTextures(1, &t);
+        return fail("the GPU refused a %dx%d texture (out of memory?)", width, height);
+    }
+    textures[id] = (struct texture){ .used = 1, .owner = ext, .width = width, .height = height, .id = t };
+    return id + 1;
+}
+
+/* An image from texture_dir/NAME.png or .jpg (afterglowd's fetch_texture and generate_texture put them there) */
+int world_texture_load(int ext, const char *name)
+{
+    size_t n = strlen(name);
+    if (n == 0 || n > 64 || strspn(name, "abcdefghijklmnopqrstuvwxyz0123456789_-") != n)
+        return fail("texture_load: \"%s\" isn't a texture name (lower case, digits, - and _)", name);
+    char path[256];
+    int width, height;
+    uint8_t *rgba = NULL;
+    for (int i = 0; i < 3 && !rgba; i++) {
+        snprintf(path, sizeof(path), "%s/%s.%s", texture_dir, name, (const char *[]){ "png", "jpg", "jpeg" }[i]);
+        rgba = access(path, R_OK) == 0 ? paint_load(path, &width, &height) : NULL;
+        if (!rgba && access(path, R_OK) == 0)
+            return fail("texture_load: %s: %s", path, paint_load_error());
+    }
+    if (!rgba)
+        return fail("texture_load: there's no texture called \"%s\" in %s", name, texture_dir);
+    int id = world_texture_create(ext, rgba, width, height);
+    free(rgba);
+    return id;
+}
+
+int world_texture_text(int ext, const char *text, int pixel_height, uint32_t ink)
+{
+    if (pixel_height < 8 || pixel_height > 512)
+        return fail("texture_text: a height of 8 to 512 pixels");
+    int width, height;
+    uint8_t *rgba = paint_text(text, pixel_height, ink, pixel_height * 0.012f, &width, &height);
+    if (!rgba)
+        return fail("texture_text: too big (at most 4096 pixels each way) or no font");
+    int id = world_texture_create(ext, rgba, width, height);
+    free(rgba);
+    return id;
+}
+
+int world_texture_size(int texture, int *width, int *height)
+{
+    struct texture *t = texture_get(texture);
+    if (!t)
+        return fail("texture_size: there's no texture %d", texture);
+    *width = t->width, *height = t->height;
+    return 0;
 }
 
 int world_object_find(const char *name)
@@ -366,6 +550,56 @@ int world_object_set_uniform(int ext, int object, const char *name, const float 
     return 0;
 }
 
+int world_object_set_texture(int ext, int object, int slot, int texture)
+{
+    if (slot < 0 || slot >= TEXTURE_SLOTS)
+        return fail("object_set_texture: slot 0 to %d", TEXTURE_SLOTS - 1);
+    if (texture && !texture_get(texture))
+        return fail("object_set_texture: there's no texture %d", texture);
+    struct object *o = changing(ext, object, CHANGE_TEXTURES);
+    return o ? (o->textures[slot] = texture, 0) : -1;
+}
+
+int world_object_set_blend(int ext, int object, int mode)
+{
+    if (mode < BLEND_SOLID || mode > BLEND_ADD)
+        return fail("object_set_blend: SOLID, BLEND or ADD");
+    struct object *o = changing(ext, object, CHANGE_BLEND);
+    return o ? (o->blend = mode, 0) : -1;
+}
+
+int world_object_set_blink(int object, int blink)
+{
+    struct object *o = object_get(object);
+    return o ? (o->blink = blink, 0) : fail("there's no object %d", object);
+}
+
+/* Where a mesh's box corner lands, through an object's transform */
+static void corner(const struct object *o, const struct mesh *m, int which, float out[3])
+{
+    float p[3] = { which & 1 ? m->hi[0] : m->lo[0], which & 2 ? m->hi[1] : m->lo[1], which & 4 ? m->hi[2] : m->lo[2] };
+    for (int r = 0; r < 3; r++)
+        out[r] = o->model[r] * p[0] + o->model[4 + r] * p[1] + o->model[8 + r] * p[2] + o->model[12 + r];
+}
+
+int world_extension_bounds(int ext, float lo[3], float hi[3])
+{
+    int found = 0;
+    for (int k = 0; k < 3; k++)
+        lo[k] = INFINITY, hi[k] = -INFINITY;
+    for (int i = 0; i < MAX_OBJECTS; i++) {
+        struct object *o = &objects[i];
+        struct mesh *m = o->used && o->owner == ext && o->visible ? mesh_get(o->mesh) : NULL;
+        for (int c = 0; m && c < 8; c++, found = 1) {
+            float p[3];
+            corner(o, m, c, p);
+            for (int k = 0; k < 3; k++)
+                lo[k] = fminf(lo[k], p[k]), hi[k] = fmaxf(hi[k], p[k]);
+        }
+    }
+    return found ? 0 : -1;
+}
+
 int world_set_background(int ext, float r, float g, float b)
 {
     if (remember(ext, CHANGE_BACKGROUND, 0) != 0)
@@ -404,7 +638,10 @@ void world_release(int ext)
         else if (o && c->kind == CHANGE_UNIFORMS) {
             memcpy(o->uniforms, c->before.uniforms, sizeof(o->uniforms));
             o->uniform_count = c->before.uniform_count;
-        }
+        } else if (o && c->kind == CHANGE_TEXTURES)
+            memcpy(o->textures, c->before.textures, sizeof(o->textures));
+        else if (o && c->kind == CHANGE_BLEND)
+            o->blend = c->before.blend;
         memmove(&changes[i], &changes[i + 1], (--change_count - i) * sizeof(changes[0]));
     }
     /* What it created goes; anything still using it (other extensions' objects, notes of how things
@@ -441,6 +678,20 @@ void world_release(int ext)
         for (int k = 0; k < change_count; k++)
             if (changes[k].before.shader == i + 1)
                 changes[k].before.shader = 0;
+    }
+    for (int i = 0; i < MAX_TEXTURES; i++) {
+        if (!textures[i].used || textures[i].owner != ext)
+            continue;
+        glDeleteTextures(1, &textures[i].id);
+        textures[i].used = 0;
+        for (int t = 0; t < TEXTURE_SLOTS; t++) {
+            for (int k = 0; k < MAX_OBJECTS; k++)
+                if (objects[k].textures[t] == i + 1)
+                    objects[k].textures[t] = 0;
+            for (int k = 0; k < change_count; k++)
+                if (changes[k].before.textures[t] == i + 1)
+                    changes[k].before.textures[t] = 0;
+        }
     }
 }
 
@@ -516,43 +767,109 @@ static void eye_view(int eye, float view_projection[16], float position[3])
     mat_mul(view_projection, view_projection, move);
 }
 
+/* The inverse transpose of a transform's 3x3 part, which turns normals the way it turns surfaces */
+static void normal_matrix(float n[9], const float m[16])
+{
+    float a = m[0], b = m[4], c = m[8], d = m[1], e = m[5], f = m[9], g = m[2], h = m[6], i = m[10];
+    float cof[9] = { e * i - f * h, -(d * i - f * g), d * h - e * g, -(b * i - c * h), a * i - c * g,
+                     -(a * h - b * g), b * f - c * e, -(a * f - c * d), a * e - b * d };
+    float det = a * cof[0] + b * cof[1] + c * cof[2];
+    if (fabsf(det) < 1e-12f)
+        det = 1;
+    for (int row = 0; row < 3; row++)
+        for (int col = 0; col < 3; col++)
+            n[col * 3 + row] = cof[row * 3 + col] / det;
+}
+
+static void draw_object(const struct object *o, const float vp[16], const float eye_position[3], float time)
+{
+    static const float ones[4] = { 1, 1, 1, 1 }, zeros[3] = { 0, 0, 0 };
+    struct mesh *m = mesh_get(o->mesh);
+    struct shader *s = shader_get(o->shader);
+    float mvp[16], normal[9];
+    mat_mul(mvp, vp, o->model);
+    normal_matrix(normal, o->model);
+    glUseProgram(s->program);
+    glUniformMatrix4fv(s->mvp, 1, GL_FALSE, mvp);
+    glUniformMatrix4fv(s->model, 1, GL_FALSE, o->model);
+    glUniformMatrix3fv(s->normal, 1, GL_FALSE, normal);
+    glUniform1fv(s->time, 1, &time);
+    glUniform3fv(s->eye, 1, eye_position);
+    if (s->standard) {
+        float cut = o->blend == BLEND_SOLID ? 0.5f : 0.004f;
+        glUniform4fv(s->colour, 1, ones);
+        glUniform2fv(s->uv_scale, 1, ones);
+        glUniform3fv(s->emission, 1, zeros);
+        glUniform1fv(s->alpha_cut, 1, &cut);
+    }
+    for (int u = 0; u < o->uniform_count; u++) {
+        const struct uniform *un = &o->uniforms[u];
+        GLint at = glGetUniformLocation(s->program, un->name);
+        if (un->count == 16)
+            glUniformMatrix4fv(at, 1, GL_FALSE, un->values);
+        else if (un->count == 4)
+            glUniform4fv(at, 1, un->values);
+        else if (un->count == 3)
+            glUniform3fv(at, 1, un->values);
+        else if (un->count == 2)
+            glUniform2fv(at, 1, un->values);
+        else
+            glUniform1fv(at, un->count, un->values);
+    }
+    if (o->blink) {   /* a road-works lamp: amber, a flash a second */
+        float on = fmodf(time, 1.0f) < 0.45f, glow[3] = { 1.0f * on, 0.55f * on, 0.05f * on };
+        glUniform3fv(s->emission, 1, glow);
+    }
+    for (int t = 0; t < TEXTURE_SLOTS; t++) {
+        struct texture *tx = texture_get(o->textures[t]);
+        glActiveTexture(GL_TEXTURE0 + t);
+        glBindTexture(GL_TEXTURE_2D, tx ? tx->id : white);
+    }
+    glBindVertexArray(m->vao);
+    if (m->ibo)
+        glDrawElements(m->primitive, m->count, GL_UNSIGNED_INT, 0);
+    else
+        glDrawArrays(m->primitive, 0, m->count);
+}
+
+/* Solid things first; then see-through and glowing ones, farthest first, without hiding what's behind them */
 static void draw_eye(int eye, float time)
 {
-    float vp[16], eye_position[3];
+    float vp[16], eye_position[3], distance[MAX_OBJECTS];
+    int order[MAX_OBJECTS], later = 0;
     eye_view(eye, vp, eye_position);
     glViewport(eye * EYE_W, 0, EYE_W, H);
     for (int i = 0; i < MAX_OBJECTS; i++) {
         struct object *o = &objects[i];
         struct mesh *m = o->used && o->visible ? mesh_get(o->mesh) : NULL;
-        struct shader *s = m ? shader_get(o->shader) : NULL;
-        if (!s)
+        if (!m || !shader_get(o->shader))
             continue;
-        float mvp[16];
-        mat_mul(mvp, vp, o->model);
-        glUseProgram(s->program);
-        glUniformMatrix4fv(s->mvp, 1, GL_FALSE, mvp);
-        glUniformMatrix4fv(s->model, 1, GL_FALSE, o->model);
-        glUniform1fv(s->time, 1, &time);
-        glUniform3fv(s->eye, 1, eye_position);
-        for (int u = 0; u < o->uniform_count; u++) {
-            const struct uniform *un = &o->uniforms[u];
-            GLint at = glGetUniformLocation(s->program, un->name);
-            if (un->count == 16)
-                glUniformMatrix4fv(at, 1, GL_FALSE, un->values);
-            else if (un->count == 4)
-                glUniform4fv(at, 1, un->values);
-            else if (un->count == 3)
-                glUniform3fv(at, 1, un->values);
-            else if (un->count == 2)
-                glUniform2fv(at, 1, un->values);
-            else
-                glUniform1fv(at, un->count, un->values);
+        if (o->blend == BLEND_SOLID) {
+            draw_object(o, vp, eye_position, time);
+            continue;
         }
-        glBindVertexArray(m->vao);
-        if (m->ibo)
-            glDrawElements(m->primitive, m->count, GL_UNSIGNED_INT, 0);
-        else
-            glDrawArrays(m->primitive, 0, m->count);
+        float a[3], b[3];
+        corner(o, m, 0, a);
+        corner(o, m, 7, b);
+        distance[i] = hypotf(hypotf((a[0] + b[0]) / 2 - eye_position[0], (a[1] + b[1]) / 2 - eye_position[1]),
+                             (a[2] + b[2]) / 2 - eye_position[2]);
+        int k = later++;
+        while (k > 0 && distance[order[k - 1]] < distance[i]) {
+            order[k] = order[k - 1];
+            k--;
+        }
+        order[k] = i;
+    }
+    if (later) {
+        glEnable(GL_BLEND);
+        glDepthMask(GL_FALSE);
+        for (int k = 0; k < later; k++) {
+            const struct object *o = &objects[order[k]];
+            glBlendFunc(GL_SRC_ALPHA, o->blend == BLEND_ADD ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
+            draw_object(o, vp, eye_position, time);
+        }
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
     }
     glBindVertexArray(0);
 }
@@ -660,10 +977,10 @@ static void control_poll(int listener)
     }
     line[len] = '\0';
     line[strcspn(line, "\r\n")] = '\0';
-    char verb[16] = "", name[64] = "", path[512] = "";
-    sscanf(line, "%15s %63s %511s", verb, name, path);
+    char verb[16] = "", name[64] = "", path[512] = "", flag[16] = "";
+    sscanf(line, "%15s %63s %511s %15s", verb, name, path, flag);
     if (strcmp(verb, "load") == 0 && name[0] && path[0])
-        ext_load(name, path, reply, sizeof(reply));
+        ext_load(name, path, strcmp(flag, "placeholder") == 0, reply, sizeof(reply));
     else if (strcmp(verb, "unload") == 0 && name[0])
         ext_unload(name, reply, sizeof(reply));
     else if (strcmp(verb, "list") == 0)
@@ -672,7 +989,7 @@ static void control_poll(int listener)
         running = 0;
         snprintf(reply, sizeof(reply), "stopping\n");
     } else
-        snprintf(reply, sizeof(reply), "error: commands are load NAME PATH, unload NAME, list, quit\n");
+        snprintf(reply, sizeof(reply), "error: commands are load NAME PATH [placeholder], unload NAME, list, quit\n");
     for (size_t off = 0, total = strlen(reply); off < total;) {
         ssize_t n = write(c, reply + off, total - off);
         if (n <= 0)
@@ -713,8 +1030,23 @@ int main(void)
     signal(SIGINT, stop);
     signal(SIGPIPE, SIG_IGN);
     read_roll();
-    if (gles_init(W, H) != 0 || display_open() != 0 || make_floor() != 0 || ext_init() != 0)
+    if (getenv("AFTERGLOW_WORLD_DIR"))
+        snprintf(texture_dir, sizeof(texture_dir), "%s/textures", getenv("AFTERGLOW_WORLD_DIR"));
+    if (gles_init(W, H) != 0 || display_open() != 0 || make_floor() != 0 || make_standard_shader() != 0 ||
+        ext_init() != 0)
         return 1;
+    static const uint8_t white_pixel[4] = { 255, 255, 255, 255 };
+    glGenTextures(1, &white);
+    glBindTexture(GL_TEXTURE_2D, white);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white_pixel);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    if (strstr((const char *)glGetString(GL_EXTENSIONS), "GL_EXT_texture_filter_anisotropic"))
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &anisotropy);
+    anisotropy = fminf(anisotropy, 8);
+    if (paint_init(FONT_PATH) != 0)
+        wlog("no font at %s: no text or signs", FONT_PATH);
     int control = control_open();
     if (control < 0)
         return 1;

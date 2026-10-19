@@ -80,7 +80,14 @@ grass extension is compiled and linked in without the world stopping.
       world runs; a crashing or looping extension is stopped and undone, not the world
 - [x] Compiled on the headset (clang in an Alpine root on `/storage`); afterglowd tools `load_extension`,
       `unload_extension`, `list_extensions`, `start_world`, `stop_world`; versions kept on `/storage`
+- [x] Something on screen in seconds: placeholders of ready-made shapes, with a road-works sign until
+      the real thing replaces them; changes sent as edits, not whole sources
+- [x] [`shapes.h`](system/world/sdk/shapes.h) (vectors, transforms, meshes from boxes, spheres, cylinders,
+      lathes; text labels), a lit standard shader, blending, textures (from pixels, files, text)
+- [x] Textures from an image generator on the network (`generate_texture`, AUTOMATIC1111 web API) or
+      the web (`fetch_texture`); made seamless when asked
 - [ ] Input in the world API: buttons now, controllers and head pose later
+- [ ] Instancing (many copies of a mesh in one draw), and a raised GPU clock while the world runs
 - [ ] Ahead-of-time compiled extensions (`wamrc`) for heavy per-frame code
 - [ ] Voice: "make the floor grass" said in the headset
 

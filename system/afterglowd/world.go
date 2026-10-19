@@ -32,9 +32,9 @@ var (
 	worldMu     sync.Mutex // one world command at a time
 )
 
-// worldDir is where extensions' versions and the list of loaded ones live: on storage if there is
-// some, so a world comes back as it was after a restart.
-func worldDir() string {
+// worldDir is where extensions' versions, the list of loaded ones and textures live: on storage if
+// there is some, so a world comes back as it was after a restart.
+var worldDir = func() string {
 	if _, err := os.Stat("/storage/lost+found"); err == nil {
 		return "/storage/world"
 	}
@@ -46,14 +46,27 @@ func worldTools() []tool {
 		{
 			Name: "load_extension",
 			Description: "Add to the running 3D world, or replace part of it: compile a C extension (the API is in " +
-				"/afterglow/sdk/afterglow.h on the headset; read it first) to WebAssembly and load it while the world " +
-				"runs. A new version of an extension replaces the old one, which first undoes everything it did. " +
-				"Compiler errors, shader errors and crashes come back here; the world keeps running. Every version " +
-				"is kept: pass version (without source) to go back to an earlier one. Take a screenshot to see it.",
+				"/afterglow/sdk/afterglow.h and shapes.h on the headset; read them first) to WebAssembly and load it " +
+				"while the world runs. A new version of an extension replaces the old one, which first undoes " +
+				"everything it did. Compiler errors, shader errors and crashes come back here; the world keeps " +
+				"running. Send source for a new extension; to change one, send edits instead (much quicker than " +
+				"the whole source again). Every version is kept: pass version alone to go back to an earlier one. " +
+				"placeholder: true puts a road-works sign beside what it makes, for a quick stand-in while you " +
+				"write the real thing; loading the real one under the same name replaces both. Take a screenshot to see it.",
 			InputSchema: schema([]string{"name"}, map[string]any{
-				"name":    prop("string", "Extension name: lower case, digits, - or _ (e.g. grass)"),
-				"source":  prop("string", "The extension's C source"),
-				"version": prop("integer", "Load this earlier version instead of new source"),
+				"name":   prop("string", "Extension name: lower case, digits, - or _ (e.g. grass)"),
+				"source": prop("string", "The extension's whole C source"),
+				"edits": map[string]any{
+					"type": "array",
+					"description": "Changes to the newest version's source (or to version's, if given), made in order: " +
+						"each old must appear exactly once",
+					"items": schema([]string{"old", "new"}, map[string]any{
+						"old": prop("string", "Text in the source, copied exactly"),
+						"new": prop("string", "What replaces it"),
+					}),
+				},
+				"version":     prop("integer", "Load this earlier version (alone), or the version edits apply to"),
+				"placeholder": prop("boolean", "A quick stand-in: the world puts a road-works sign beside it"),
 			}),
 			call: loadExtension,
 		},
@@ -116,6 +129,50 @@ func versionPath(name string, version int, ext string) string {
 	return filepath.Join(worldDir(), "extensions", name, fmt.Sprintf("v%d.%s", version, ext))
 }
 
+// loadCommand is the world's command to load a version; placeholders are marked by a file beside it.
+func loadCommand(name string, version int) string {
+	command := fmt.Sprintf("load %s %s", name, versionPath(name, version, "wasm"))
+	if _, err := os.Stat(versionPath(name, version, "placeholder")); err == nil {
+		command += " placeholder"
+	}
+	return command
+}
+
+// newestVersion is the highest version of an extension kept, or 0.
+func newestVersion(name string) int {
+	newest := 0
+	existing, _ := filepath.Glob(filepath.Join(worldDir(), "extensions", name, "v*.c"))
+	for _, path := range existing {
+		if n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "v"), ".c")); err == nil && n > newest {
+			newest = n
+		}
+	}
+	return newest
+}
+
+type edit struct {
+	Old string `json:"old"`
+	New string `json:"new"`
+}
+
+// applyEdits makes each edit in turn; each old text must appear exactly once.
+func applyEdits(source string, edits []edit) (string, error) {
+	for i, e := range edits {
+		if e.Old == "" {
+			return "", fmt.Errorf("edit %d: old is empty", i+1)
+		}
+		switch n := strings.Count(source, e.Old); n {
+		case 1:
+			source = strings.Replace(source, e.Old, e.New, 1)
+		case 0:
+			return "", fmt.Errorf("edit %d: old text isn't in the source (it must match exactly, spaces included)", i+1)
+		default:
+			return "", fmt.Errorf("edit %d: old text appears %d times; include more around it so it's unique", i+1, n)
+		}
+	}
+	return source, nil
+}
+
 // ensureWorld starts the world if it isn't running, with the extensions it had. It returns a note
 // for the reply when it had to.
 func ensureWorld() (string, error) {
@@ -124,7 +181,8 @@ func ensureWorld() (string, error) {
 	}
 	cmd := exec.Command(worldBinary)
 	cmd.Env = []string{"PATH=/sbin:/bin:/usr/sbin:/usr/bin",
-		"LD_LIBRARY_PATH=/system/lib64/vndk-sp-29:/system/lib64/vndk-29:/vendor/lib64:/vendor/lib64/egl"}
+		"LD_LIBRARY_PATH=/system/lib64/vndk-sp-29:/system/lib64/vndk-29:/vendor/lib64:/vendor/lib64/egl",
+		"AFTERGLOW_WORLD_DIR=" + worldDir()}
 	log, err := os.OpenFile("/tmp/world.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return "", err
@@ -155,7 +213,7 @@ func ensureWorld() (string, error) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		reply, _ := worldCommand(fmt.Sprintf("load %s %s", name, versionPath(name, active[name], "wasm")), 60*time.Second)
+		reply, _ := worldCommand(loadCommand(name, active[name]), 60*time.Second)
 		note += fmt.Sprintf("; %s v%d: %s", name, active[name], strings.TrimSpace(reply))
 	}
 	return note, nil
@@ -163,9 +221,11 @@ func ensureWorld() (string, error) {
 
 func loadExtension(args json.RawMessage) ([]any, error) {
 	var a struct {
-		Name    string `json:"name"`
-		Source  string `json:"source"`
-		Version int    `json:"version"`
+		Name        string `json:"name"`
+		Source      string `json:"source"`
+		Edits       []edit `json:"edits"`
+		Version     int    `json:"version"`
+		Placeholder bool   `json:"placeholder"`
 	}
 	if err := decode(args, &a); err != nil {
 		return nil, err
@@ -173,28 +233,38 @@ func loadExtension(args json.RawMessage) ([]any, error) {
 	if !extNameRule.MatchString(a.Name) {
 		return nil, errors.New("name: lower case letters, digits, - or _, starting with a letter, up to 32")
 	}
-	if (a.Source == "") == (a.Version == 0) {
-		return nil, errors.New("give either source (a new version) or version (an earlier one)")
+	if a.Source != "" && (len(a.Edits) > 0 || a.Version != 0) || a.Source == "" && len(a.Edits) == 0 && a.Version == 0 {
+		return nil, errors.New("give source (a new version), edits (to the newest version, or to version), or version alone (to go back to it)")
 	}
 	worldMu.Lock()
 	defer worldMu.Unlock()
 
 	version := a.Version
+	if len(a.Edits) > 0 {
+		base := a.Version
+		if base == 0 {
+			base = newestVersion(a.Name)
+		}
+		old, err := os.ReadFile(versionPath(a.Name, base, "c"))
+		if err != nil {
+			return nil, fmt.Errorf("there's no version %d of %s to edit", base, a.Name)
+		}
+		if a.Source, err = applyEdits(string(old), a.Edits); err != nil {
+			return nil, fmt.Errorf("%s v%d unchanged: %w", a.Name, base, err)
+		}
+	}
 	if a.Source != "" {
 		dir := filepath.Join(worldDir(), "extensions", a.Name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
 		}
-		existing, _ := filepath.Glob(filepath.Join(dir, "v*.c"))
-		for _, path := range existing {
-			if n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "v"), ".c")); err == nil && n > version {
-				version = n
-			}
-		}
-		version++
+		version = newestVersion(a.Name) + 1
 		source := versionPath(a.Name, version, "c")
 		if err := os.WriteFile(source, []byte(a.Source), 0o644); err != nil {
 			return nil, err
+		}
+		if a.Placeholder {
+			os.WriteFile(versionPath(a.Name, version, "placeholder"), nil, 0o644)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -216,7 +286,7 @@ func loadExtension(args json.RawMessage) ([]any, error) {
 		return nil, err
 	}
 	start := time.Now()
-	reply, err := worldCommand(fmt.Sprintf("load %s %s", a.Name, versionPath(a.Name, version, "wasm")), 60*time.Second)
+	reply, err := worldCommand(loadCommand(a.Name, version), 60*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("the world didn't answer: %w (see /tmp/world.log)", err)
 	}
@@ -272,9 +342,13 @@ func listExtensions(args json.RawMessage) ([]any, error) {
 		fmt.Fprintf(&out, "%s: %d compiled version(s) kept", name, len(versions))
 		if v, ok := active[name]; ok {
 			fmt.Fprintf(&out, ", v%d loaded", v)
+			if strings.HasSuffix(loadCommand(name, v), " placeholder") {
+				out.WriteString(" (a placeholder)")
+			}
 		}
 		out.WriteString("\n")
 	}
+	out.WriteString(listTextures())
 	return []any{text(out.String())}, nil
 }
 

@@ -62,7 +62,11 @@ install -m 0755 "$AFTERGLOWD" "$ROOT/bin/"
 # The world (built with the Android NDK) and the header its extensions are written against
 install -m 0755 "$WORLD" "$ROOT/afterglow/world"
 mkdir -p "$ROOT/afterglow/sdk"
-cp /work/system/world/sdk/afterglow.h "$ROOT/afterglow/sdk/"
+cp /work/system/world/sdk/*.h "$ROOT/afterglow/sdk/"
+# What's inside the world: WAMR (Apache-2.0 with LLVM exception) and stb_image (public domain or MIT)
+mkdir -p "$ROOT/usr/share/licenses/wamr" "$ROOT/usr/share/licenses/stb_image"
+cp /work/out/world/wasm-micro-runtime-WAMR-2.4.5/LICENSE "$ROOT/usr/share/licenses/wamr/"
+sed -n '/^This software is available under 2 licenses/,$p' /work/out/world/stb/stb_image.h > "$ROOT/usr/share/licenses/stb_image/LICENSE"
 
 # gzip-compressed: the headset's bootloader fails to boot an image whose ramdisk is much over 38 MiB
 # (38.4 MiB booted; 39.8 MiB came straight back to fastboot, which then needed a power cycle). The

@@ -6,10 +6,13 @@ through afterglowd's tools; the extension API is [`sdk/afterglow.h`](sdk/aftergl
 
 | File | What |
 |---|---|
-| `world.c` | Render loop, scene (meshes, shaders, objects, with who changed what), stereo views centred on the lenses and turned by each panel's roll, frames to the panels, control socket |
+| `world.c` | Render loop, scene (meshes, shaders, textures, objects, with who changed what), the standard shader, blending, stereo views centred on the lenses and turned by each panel's roll, frames to the panels, control socket |
 | `ext.c` | Extensions in WAMR's fast interpreter: the API as WebAssembly imports, an instruction budget per call, unloading and restoring on failure |
+| `sign.c` | The road-works sign put beside a placeholder |
+| `paint.c` | Pictures on the CPU: images from files (stb_image), text (stb_truetype, from distance fields so the light font can be made bolder), the sign's face |
 | `gles.c` | Qualcomm's OpenGL ES driver, loaded by name (no Android properties) |
-| `sdk/afterglow.h` | The API extensions are written against (on the headset at `/afterglow/sdk/afterglow.h`) |
+| `sdk/afterglow.h` | The API extensions are written against (on the headset in `/afterglow/sdk/`) |
+| `sdk/shapes.h` | Building blocks: vectors, transforms, a mesh builder (boxes, wedges, spheres, cylinders, cones, lathes, quads), `shape()` for a whole object in a line, `label()` for text, noise |
 | `toolchain.sh` | Packs the compiler for the headset: clang, lld and the WASI C library in an Alpine root |
 | `build.sh`, `CMakeLists.txt` | Builds `out/world/world` with the Android NDK and WAMR 2.4.5 |
 
@@ -46,9 +49,23 @@ python3 tools/push_file.py out/world/toolchain.tar.gz --extract /storage/toolcha
   compiler's messages come back with the load.
 - The loaded extensions and their versions are in `/storage/world/active.json`, so a restarted world
   comes back as it was. `version` in `load_extension` goes back to an earlier version.
-- The control socket is `/run/afterglow/world.sock`: `load NAME PATH`, `unload NAME`, `list`, `quit`.
+- `edits` in `load_extension` change the newest version's source (each old text must appear exactly
+  once) and load the result as a new version: a tweak costs a line, not the whole file again.
+- **Placeholders.** `placeholder: true` marks a version as a stand-in: after its `on_load()` the world
+  stands a road-works sign (red triangle, a man digging, MEN AT WORK, an amber lamp flashing) on the
+  floor at the front right of everything it made, turned to the wearer, and bigger the farther away
+  it is. The sign belongs to that version, so the real one, loaded under the same name, replaces both.
+  It's how Claude shows something within seconds while it writes something that takes minutes.
+- **Textures** are kept in `/storage/world/textures` (`$AFTERGLOW_WORLD_DIR/textures`) as PNG or JPEG;
+  `texture_load("name")` reads them. afterglowd's `generate_texture` and `fetch_texture` put them there.
+- The control socket is `/run/afterglow/world.sock`: `load NAME PATH [placeholder]`, `unload NAME`, `list`, `quit`.
   While the world runs it owns the display (`/run/afterglow/display-owner`); `/init`'s status screen
   returns when it stops.
+
+Placeholders, measured 2026-10-19: a four-shape cottage loaded with its sign 2 s after it was sent
+(compile 0.9 s); its textured replacement, fixed by a one-line edit, 1.6 s. A 1024² CC0 texture
+fetched from Poly Haven in 1.1 s. A full-screen textured floor brings the world to 36 fps: the GPU
+sits at its lowest clock (257 MHz), and filling 2880×1600 four times over shows.
 
 Measured 2026-10-19: compile 0.5 s, load 11 ms, MCP round trip 0.3 s; the wireframe floor at 48 fps,
 150,000 animated triangles (generated in 97 ms by the interpreter) at 33 fps. Nearly all of each frame

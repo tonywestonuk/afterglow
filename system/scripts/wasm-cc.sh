@@ -13,7 +13,7 @@ grep -q " $tc/proc " /proc/mounts || mount -t proc proc $tc/proc
 
 dir=$(mktemp -d $tc/build/XXXXXX) || exit 2
 name=$(basename "${3:-$src}")
-cp "$src" "$dir/$name" && cp /afterglow/sdk/afterglow.h "$dir/" || { rm -rf "$dir"; exit 2; }
+cp "$src" "$dir/$name" && cp /afterglow/sdk/*.h "$dir/" || { rm -rf "$dir"; exit 2; }
 chroot $tc /bin/sh -c "cd /build/${dir##*/} && /usr/bin/clang --target=wasm32-wasi -mexec-model=reactor -O2 \
     --sysroot=/usr/share/wasi-sysroot -I. -Wall -Wl,--export-if-defined=on_load \
     -Wl,--export-if-defined=on_frame -Wl,--export-if-defined=on_unload -o extension.wasm '$name'"

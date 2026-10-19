@@ -47,9 +47,11 @@ never put a device serial number in the repo.
   `~/.config/afterglow/token` (never print it). Its `write_file` refuses anything under `/dev`; test
   guards like that only with harmless paths (`/dev/null`, made-up names in a temp folder), never with
   a real disk such as `/dev/sda`.
-- The 3D world: `load_extension` with C source against `system/world/sdk/afterglow.h` (on the headset at
-  `/afterglow/sdk/afterglow.h`), then `screenshot`. It's compiled on the headset by the toolchain on
+- The 3D world: `load_extension` with C source against `system/world/sdk/afterglow.h` and `shapes.h` (on
+  the headset in `/afterglow/sdk/`), then `screenshot`. It's compiled on the headset by the toolchain on
   `/storage/toolchain` (install: `system/world/README.md`). The NDK lives in `tools/android-ndk-dl/`.
+  Placeholder first (`placeholder: true`) when the real thing takes long to write; `edits` for changes.
+  To try a new world binary without rebooting: `stop_world`, replace `/afterglow/world` (RAM), start again.
 - Magisk's root prompt can't display on a Quest with a custom launcher. Use the root overlay in
   `tools/root-overlay/` ([procedure](docs/rooting-and-backup.md)).
 - macOS has no `timeout`, and Bash is 3.2: keep scripts portable.

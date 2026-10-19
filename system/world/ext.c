@@ -19,6 +19,7 @@
 
 struct extension {
     int used, failed, id;   /* id: whose things are whose in the world; never reused */
+    int placeholder;        /* stands in for something still being made: it gets a road-works sign */
     char name[64], path[512], problem[1024];
     uint8_t *bytes;
     wasm_module_t module;
@@ -119,6 +120,57 @@ static int32_t x_object_set_uniform(wasm_exec_env_t env, int32_t object, const c
     return v ? noted(world_object_set_uniform(current->id, object, name, v, count)) : -1;
 }
 
+static int32_t x_shader_standard(wasm_exec_env_t env)
+{
+    (void)env;
+    return world_shader_standard();
+}
+
+static int32_t x_texture_create(wasm_exec_env_t env, uint32_t rgba, int32_t width, int32_t height)
+{
+    if (width < 1 || height < 1 || width > 4096 || height > 4096) {
+        snprintf(current->problem, sizeof(current->problem), "texture_create: 1 to 4096 pixels each way, not %dx%d",
+                 width, height);
+        return -1;
+    }
+    const uint8_t *pixels = array(env, rgba, (uint64_t)width * height * 4);
+    return pixels ? noted(world_texture_create(current->id, pixels, width, height)) : -1;
+}
+
+static int32_t x_texture_load(wasm_exec_env_t env, const char *name)
+{
+    (void)env;
+    return noted(world_texture_load(current->id, name));
+}
+
+static int32_t x_texture_text(wasm_exec_env_t env, const char *text, int32_t pixel_height, int32_t ink)
+{
+    (void)env;
+    return noted(world_texture_text(current->id, text, pixel_height, (uint32_t)ink));
+}
+
+static int32_t x_texture_size(wasm_exec_env_t env, int32_t texture, uint32_t width, uint32_t height)
+{
+    int32_t *w = array(env, width, 4), *h = array(env, height, 4);
+    int tw, th;
+    if (!w || !h || noted(world_texture_size(texture, &tw, &th)) != 0)
+        return -1;
+    *w = tw, *h = th;
+    return 0;
+}
+
+static int32_t x_object_set_texture(wasm_exec_env_t env, int32_t object, int32_t slot, int32_t texture)
+{
+    (void)env;
+    return noted(world_object_set_texture(current->id, object, slot, texture));
+}
+
+static int32_t x_object_set_blend(wasm_exec_env_t env, int32_t object, int32_t mode)
+{
+    (void)env;
+    return noted(world_object_set_blend(current->id, object, mode));
+}
+
 static int32_t x_set_background(wasm_exec_env_t env, float r, float g, float b)
 {
     (void)env;
@@ -158,6 +210,13 @@ int ext_init(void)
         { "object_set_transform", (void *)x_object_set_transform, "(ii)i", NULL },
         { "object_set_visible", (void *)x_object_set_visible, "(ii)i", NULL },
         { "object_set_uniform", (void *)x_object_set_uniform, "(i$ii)i", NULL },
+        { "shader_standard", (void *)x_shader_standard, "()i", NULL },
+        { "texture_create", (void *)x_texture_create, "(iii)i", NULL },
+        { "texture_load", (void *)x_texture_load, "($)i", NULL },
+        { "texture_text", (void *)x_texture_text, "($ii)i", NULL },
+        { "texture_size", (void *)x_texture_size, "(iii)i", NULL },
+        { "object_set_texture", (void *)x_object_set_texture, "(iii)i", NULL },
+        { "object_set_blend", (void *)x_object_set_blend, "(ii)i", NULL },
         { "set_background", (void *)x_set_background, "(fff)i", NULL },
         { "world_seconds", (void *)x_world_seconds, "()F", NULL },
         { "log_message", (void *)x_log_message, "($)", NULL },
@@ -240,7 +299,11 @@ static int start(struct extension *e)
     }
     e->on_frame = wasm_runtime_lookup_function(e->inst, "on_frame");
     /* (Instantiating has already run _initialize, the C library's setup; wasi-libc traps if it runs twice) */
-    return call(e, "on_load", 0, NULL, LOAD_BUDGET);
+    if (call(e, "on_load", 0, NULL, LOAD_BUDGET) != 0)
+        return -1;
+    if (e->placeholder && sign_place(e->id, e->name) != 0)
+        wlog("%s: no sign: %s", e->name, world_error());
+    return 0;
 }
 
 static struct extension *find(const char *name)
@@ -258,7 +321,7 @@ static void stop_extension(struct extension *e)
     destroy(e);
 }
 
-int ext_load(const char *name, const char *path, char *reply, size_t size)
+int ext_load(const char *name, const char *path, int placeholder, char *reply, size_t size)
 {
     struct extension *slot = find(name), previous = { 0 };
     if (!slot) {
@@ -277,6 +340,7 @@ int ext_load(const char *name, const char *path, char *reply, size_t size)
     struct extension *e = slot;
     memset(e, 0, sizeof(*e));
     e->used = 1;
+    e->placeholder = placeholder;
     snprintf(e->name, sizeof(e->name), "%s", name);
     snprintf(e->path, sizeof(e->path), "%s", path);
     double t0 = world_time();
@@ -287,6 +351,7 @@ int ext_load(const char *name, const char *path, char *reply, size_t size)
         wlog("%s didn't load: %s", name, problem);
         if (previous.used && !previous.failed) {
             snprintf(e->path, sizeof(e->path), "%s", previous.path);
+            e->placeholder = previous.placeholder;
             if (start(e) == 0) {
                 snprintf(reply, size, "error: %s\nthe previous version is running again\n", problem);
                 return -1;
@@ -297,8 +362,9 @@ int ext_load(const char *name, const char *path, char *reply, size_t size)
         snprintf(reply, size, "error: %s\n", problem);
         return -1;
     }
-    wlog("%s loaded from %s (on_load %.0f ms)", name, path, 1000 * (world_time() - t0));
-    snprintf(reply, size, "loaded %s (on_load took %.0f ms)\n", name, 1000 * (world_time() - t0));
+    wlog("%s loaded from %s (on_load %.0f ms)%s", name, path, 1000 * (world_time() - t0), placeholder ? ", a placeholder" : "");
+    snprintf(reply, size, "loaded %s%s (on_load took %.0f ms)\n", name, placeholder ? " as a placeholder, with a road-works sign" : "",
+             1000 * (world_time() - t0));
     if (e->problem[0]) {   /* a world call failed, though nothing trapped: likely the reason it looks wrong */
         size_t used = strlen(reply);
         snprintf(reply + used, size - used, "but a call failed: %s\n", e->problem);
@@ -327,8 +393,8 @@ void ext_list(char *reply, size_t size)
     for (int i = 0; i < MAX_EXTENSIONS && used < size; i++) {
         struct extension *e = &extensions[i];
         if (e->used)
-            used += snprintf(reply + used, size - used, "%s: %s%s%s\n", e->name, e->failed ? "failed" : "running",
-                             e->problem[0] ? ": " : "", e->problem);
+            used += snprintf(reply + used, size - used, "%s: %s%s%s%s\n", e->name, e->failed ? "failed" : "running",
+                             e->placeholder ? " (placeholder)" : "", e->problem[0] ? ": " : "", e->problem);
     }
     if (used == 0)
         snprintf(reply, size, "no extensions loaded\n");

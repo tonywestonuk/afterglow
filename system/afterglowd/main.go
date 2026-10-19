@@ -36,11 +36,16 @@ func main() {
 	name := flag.String("name", "afterglow", "host name to answer mDNS for (<name>.local); empty for none")
 	flag.Parse()
 
+	imageGeneratorFile = filepath.Join(filepath.Dir(*tokenFile), "image-generator")
+	// For https: the headset's CA certificates are Android's, which Go only looks for when built for Android
+	if os.Getenv("SSL_CERT_DIR") == "" {
+		os.Setenv("SSL_CERT_DIR", "/etc/ssl/certs:/system/etc/security/cacerts")
+	}
 	kmsg, _ = os.OpenFile("/dev/kmsg", os.O_WRONLY, 0)
 	if *name != "" {
 		go advertise(*name)
 	}
-	s := &server{tokenFile: *tokenFile, tools: append(tools(), worldTools()...)}
+	s := &server{tokenFile: *tokenFile, tools: append(append(tools(), worldTools()...), textureTools()...)}
 	go s.showStatus("/run/afterglow/status/30-claude")
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", s)

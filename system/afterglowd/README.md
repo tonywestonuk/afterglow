@@ -36,12 +36,19 @@ Wi-Fi networks, so after a restart nothing is needed: it reconnects and Claude C
 | `status` | Uptime, load, memory, battery, SoC temperature, the Snapdragon's subsystems, addresses, Wi-Fi |
 | `logs` | The kernel log (afterglow's and Android daemons' messages are there too) or a log file, last N lines, filtered by a regular expression |
 | `screenshot` | Both eyes or one, as the wearer sees them, as PNG; 1/2 scale by default (1440×800) |
-| `load_extension` | Compile C source for the 3D world on the headset and load it while the world runs; or go back to an earlier `version` ([system/world](../world/README.md)) |
+| `load_extension` | Compile C source for the 3D world on the headset and load it while the world runs; `edits` change the newest version instead of resending it; `placeholder` adds a road-works sign; or go back to an earlier `version` ([system/world](../world/README.md)) |
 | `unload_extension`, `list_extensions` | Remove one (everything it did is undone); what's loaded, what failed and why, versions kept |
 | `start_world`, `stop_world` | The world on the displays, or back to the status screen |
+| `generate_texture` | Has an image generator on the network paint a texture from a description (AUTOMATIC1111 web API; the address is remembered), keeps it for `texture_load`, returns a preview |
+| `fetch_texture` | The same from an image URL (e.g. CC0 textures from Poly Haven or ambientCG) |
 
 The server also gives the client short instructions (MCP `instructions`): what the device is, that
-storage is RAM, and that partitions must never be written.
+storage is RAM, that partitions must never be written, and how to work on the world: read the SDK
+headers, put a placeholder up first when the real thing will take more than a minute to write, and
+change extensions with edits.
+
+For https, afterglowd uses Android's CA certificates (`/system/etc/security/cacerts`); the headset's
+clock is set by NTP when Wi-Fi comes up (`udhcpc.sh`), since nothing sets it at boot.
 
 Every tool call is logged to the kernel log (`afterglowd: run: …`), so the USB console shows what a
 client does.

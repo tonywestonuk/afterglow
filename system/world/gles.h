@@ -37,7 +37,13 @@
     X(PFNGLGENVERTEXARRAYSPROC, glGenVertexArrays) X(PFNGLDELETEVERTEXARRAYSPROC, glDeleteVertexArrays)       \
     X(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray) X(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer)     \
     X(PFNGLENABLEVERTEXATTRIBARRAYPROC, glEnableVertexAttribArray) X(PFNGLDRAWARRAYSPROC, glDrawArrays)       \
-    X(PFNGLDRAWELEMENTSPROC, glDrawElements)
+    X(PFNGLDRAWELEMENTSPROC, glDrawElements) X(PFNGLUNIFORM1IPROC, glUniform1i)                               \
+    X(PFNGLUNIFORMMATRIX3FVPROC, glUniformMatrix3fv) X(PFNGLGENTEXTURESPROC, glGenTextures)                   \
+    X(PFNGLDELETETEXTURESPROC, glDeleteTextures) X(PFNGLBINDTEXTUREPROC, glBindTexture)                       \
+    X(PFNGLACTIVETEXTUREPROC, glActiveTexture) X(PFNGLTEXIMAGE2DPROC, glTexImage2D)                           \
+    X(PFNGLTEXPARAMETERIPROC, glTexParameteri) X(PFNGLTEXPARAMETERFPROC, glTexParameterf)                     \
+    X(PFNGLGENERATEMIPMAPPROC, glGenerateMipmap) X(PFNGLGETFLOATVPROC, glGetFloatv)                           \
+    X(PFNGLPIXELSTOREIPROC, glPixelStorei)
 
 #define X(type, name) extern type name;
 EGL_FUNCTIONS(X)

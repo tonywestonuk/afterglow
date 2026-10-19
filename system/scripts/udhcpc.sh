@@ -16,5 +16,7 @@ case $1 in
         for d in $dns; do echo "nameserver $d" >> /etc/resolv.conf; done
         echo "<6>afterglow: $interface has address $ip" > /dev/kmsg
         [ "$interface" != wlan0 ] || { mkdir -p /run/afterglow/status && printf 'Wi-Fi\t%s\n' "$ip" > /run/afterglow/status/20-wifi; }
+        # Nothing sets the clock at boot (it starts in 1970), and fetching over https needs it right
+        [ "$1" != bound ] || (ntpd -n -q -p pool.ntp.org -p time.cloudflare.com > /dev/null 2>&1 &)
         ;;
 esac

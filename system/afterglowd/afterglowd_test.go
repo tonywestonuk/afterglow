@@ -2,7 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +25,7 @@ func newTestServer(t *testing.T) *server {
 	if err := os.WriteFile(path, []byte(testToken+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return &server{tokenFile: path, tools: append(tools(), worldTools()...)}
+	return &server{tokenFile: path, tools: append(append(tools(), worldTools()...), textureTools()...)}
 }
 
 // post sends one JSON-RPC message and returns the HTTP status and the decoded response.
@@ -47,10 +52,14 @@ func call(t *testing.T, s *server, name string, args map[string]any) (string, bo
 		t.Fatalf("%s: HTTP %d, %v", name, code, resp)
 	}
 	result := resp["result"].(map[string]any)
-	first := result["content"].([]any)[0].(map[string]any)
 	isError, _ := result["isError"].(bool)
-	s1, _ := first["text"].(string)
-	return s1, isError
+	var texts []string
+	for _, item := range result["content"].([]any) {
+		if s, ok := item.(map[string]any)["text"].(string); ok {
+			texts = append(texts, s)
+		}
+	}
+	return strings.Join(texts, "\n"), isError
 }
 
 func TestAuthorization(t *testing.T) {
@@ -95,7 +104,7 @@ func TestHandshake(t *testing.T) {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
 	if got := strings.Join(names, " "); got != "run read_file write_file list_dir status logs screenshot "+
-		"load_extension unload_extension list_extensions start_world stop_world" {
+		"load_extension unload_extension list_extensions start_world stop_world generate_texture fetch_texture" {
 		t.Errorf("tools: %s", got)
 	}
 	_, resp = post(t, s, `{"jsonrpc":"2.0","id":4,"method":"no/such"}`, nil)
@@ -202,9 +211,97 @@ func TestExtensionArguments(t *testing.T) {
 		{"name": "../etc", "source": "x"},              // a path
 		{"name": "grass"},                              // neither source nor version
 		{"name": "grass", "source": "x", "version": 2}, // both
+		{"name": "grass", "source": "x", "edits": []any{map[string]any{"old": "a", "new": "b"}}},
+		{"name": "nothing-to-edit", "edits": []any{map[string]any{"old": "a", "new": "b"}}},
 	} {
 		if out, isErr := call(t, s, "load_extension", args); !isErr {
 			t.Errorf("load_extension %v accepted: %s", args, out)
 		}
+	}
+}
+
+func TestEdits(t *testing.T) {
+	source := "int a = 1;\nint b = 2;\nint c = 1;\n"
+	got, err := applyEdits(source, []edit{{Old: "b = 2", New: "b = 3"}, {Old: "int c", New: "long c"}})
+	if err != nil || got != "int a = 1;\nint b = 3;\nlong c = 1;\n" {
+		t.Errorf("applyEdits: %q, %v", got, err)
+	}
+	for _, bad := range [][]edit{{{Old: "= 1", New: "x"}}, {{Old: "missing", New: "x"}}, {{Old: "", New: "x"}}} {
+		if _, err := applyEdits(source, bad); err == nil {
+			t.Errorf("applyEdits %v: no error", bad)
+		}
+	}
+}
+
+// stripes makes a test image: smooth vertical bands, which don't line up at the left and right edges.
+func stripes(w, h int) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			v := uint8(128 + 100*math.Sin(float64(x)/float64(w)*5))
+			img.Set(x, y, color.NRGBA{v, v, 200, 255})
+		}
+	}
+	return img
+}
+
+func TestSeamless(t *testing.T) {
+	img := stripes(200, 100)
+	if tilesAlready(img, true) || !tilesAlready(img, false) {
+		t.Fatal("tilesAlready: wrong about the test image")
+	}
+	if !blendEdges(img) || !tilesAlready(img, true) {
+		t.Error("blendEdges didn't make it tile across")
+	}
+	if blendEdges(img) {
+		t.Error("blendEdges changed an image that already tiles")
+	}
+}
+
+func TestTextures(t *testing.T) {
+	dir := t.TempDir()
+	defer func(f func() string, g string) { worldDir, imageGeneratorFile = f, g }(worldDir, imageGeneratorFile)
+	worldDir = func() string { return dir }
+	imageGeneratorFile = filepath.Join(dir, "image-generator")
+	var picture bytes.Buffer
+	png.Encode(&picture, stripes(600, 300))
+
+	// An image generator with AUTOMATIC1111's API, and a plain web server
+	var asked map[string]any
+	generator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sdapi/v1/txt2img" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&asked)
+		json.NewEncoder(w).Encode(map[string]any{"images": []string{base64.StdEncoding.EncodeToString(picture.Bytes())}})
+	}))
+	defer generator.Close()
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(picture.Bytes()) }))
+	defer web.Close()
+
+	s := newTestServer(t)
+	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "lawn", "prompt": "grass"}); !isErr {
+		t.Errorf("generate_texture with no server known: %s", out)
+	}
+	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "lawn", "prompt": "grass", "seamless": true,
+		"server": generator.URL}); isErr || !strings.Contains(out, "edges blended") {
+		t.Errorf("generate_texture: %s", out)
+	}
+	if asked["prompt"] != "grass" || asked["tiling"] != true || asked["width"] != 512.0 {
+		t.Errorf("the generator was asked for %v", asked)
+	}
+	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "moss", "prompt": "moss"}); isErr {
+		t.Errorf("generate_texture with the server remembered: %s", out)
+	}
+	if out, isErr := call(t, s, "fetch_texture", map[string]any{"name": "bands", "url": web.URL + "/bands.png"}); isErr ||
+		!strings.Contains(out, "600x300") {
+		t.Errorf("fetch_texture: %s", out)
+	}
+	if out, isErr := call(t, s, "fetch_texture", map[string]any{"name": "nope", "url": "file:///etc/passwd"}); !isErr {
+		t.Errorf("fetch_texture of a file: URL accepted: %s", out)
+	}
+	if got := listTextures(); got != "textures: bands (600x300), lawn (600x300), moss (600x300)\n" {
+		t.Errorf("listTextures: %q", got)
 	}
 }

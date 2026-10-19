@@ -61,7 +61,8 @@ How:
 | **Lens centring and distortion** | Each eye's projection must be centred on its lens (852,865 and 2028,865 on screen), and the image pre-warped for the lens; the roll correction (already per pixel on the CPU) moves into the same GPU pass |
 | **Head tracking** | The motion sensor is behind Meta's SyncBoss microcontroller; Meta's kernel has its driver, the data format needs working out. Without it the floor turns with your head |
 | **Voice** | The microphones (the audio DSP already runs) and speech-to-text, on the Mac at first |
-
+| **GPU clock** | The GPU stays at its lowest clock (257 MHz; `msm-adreno-tz` sees it idle while the CPU copies frames), so filling the screen costs: a full-screen textured floor takes the world from 48 to 36 fps. Raise its floor while the world runs (kgsl's `min_pwrlevel`), with an eye on temperature |
+| **Instancing** | Many copies of one mesh (grass blades, puffs of smoke, crowds) in one draw, each with its own transform and colour |
 | **Faster extensions** | They run in WAMR's fast interpreter (its JIT is x86-only). Ahead-of-time compilation with `wamrc`, which needs LLVM (already in the headset's compiler), would make heavy `on_frame()` code native |
 
 ## Built 2026-10-19
@@ -75,3 +76,37 @@ How:
   `chroot`; 0.5 s per extension. Claude sends C source, never binaries, so any MCP client can do it.
 - **afterglowd tools**: `load_extension`, `unload_extension`, `list_extensions`, `start_world`,
   `stop_world`; every version kept on storage.
+
+## Something on screen in seconds (2026-10-19)
+
+A complex scene took minutes to appear. Compiling took about a second; nearly all of the time was
+Claude writing 300-700 lines of C, resent in full for every tweak, with the same helpers (vectors,
+boxes, lathes, a pixel font) written again in every extension. So:
+
+- **Placeholders.** For anything that will take more than a minute to write, Claude first loads a
+  stand-in under the same name, `placeholder: true`: a few `shape()` calls, roughly where and how big
+  the real thing will be, in its colours. The world puts a road-works sign beside it (a red triangle
+  with a man digging, MEN AT WORK, an amber lamp flashing). The real version, loaded under the same
+  name, replaces both. Measured: a placeholder cottage on screen 2 s after it was sent.
+- **Edits.** `load_extension` takes `edits` (old and new text) against the newest version, so "make
+  the blades longer" costs a line.
+- **`shapes.h`.** The helpers every extension was writing: vectors, poses, a mesh builder (boxes,
+  wedges, spheres, cylinders, cones, lathes, quads), `shape()` and `label()`, random numbers, noise.
+- **A standard shader** (lit by a sun and the sky, colour x vertex colour x texture, emission), so most
+  things need no GLSL; **blending** (alpha and additive, drawn farthest first).
+
+## Textures (2026-10-19)
+
+Three ways in, all ending as a texture an extension uses with `texture_load("name")` (or makes itself):
+
+| Way | How | For |
+|---|---|---|
+| Painted | `texture_create(pixels)`: the extension computes them (noise, bricks, stripes) | Instant; patterns and procedural materials |
+| Generated | afterglowd's `generate_texture`: the headset asks an image generator on the network (Stable Diffusion and the like, through the AUTOMATIC1111 web API that AUTOMATIC1111, Forge, SD.Next and Draw Things' HTTP server offer), with `tiling` for seamless ones | Anything describable: "mossy cobblestones" |
+| Fetched | afterglowd's `fetch_texture`: any PNG or JPEG URL; CC0 libraries (Poly Haven, ambientCG) are made for this | Real-world materials, photographed |
+
+The image goes from the generator or the web straight to the headset; Claude only sees a small
+preview (2x2 for seamless ones, so a seam would show). Images that should repeat but don't are
+blended at their edges. Text becomes a texture too (`texture_text`, `label()`), in afterglow's font.
+Proven: fetching (Poly Haven over https) and the generator round trip against a stand-in speaking the
+AUTOMATIC1111 API; not yet against a real Stable Diffusion server.

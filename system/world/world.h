@@ -23,10 +23,19 @@ double world_time(void);
 #define PRIMITIVE_POINTS 2
 #define VERTEX_FLOATS 12   /* position xyz, normal xyz, uv, colour rgba */
 #define MAX_UNIFORM_FLOATS 16
+#define TEXTURE_SLOTS 4
+#define BLEND_SOLID 0
+#define BLEND_ALPHA 1
+#define BLEND_ADD 2
 
 int world_mesh_create(int ext, const float *vertices, int vertex_count, const uint32_t *indices, int index_count,
                       int primitive);
 int world_shader_create(int ext, const char *vertex_glsl, const char *fragment_glsl);
+int world_shader_standard(void);
+int world_texture_create(int ext, const uint8_t *rgba, int width, int height);
+int world_texture_load(int ext, const char *name);
+int world_texture_text(int ext, const char *text, int pixel_height, uint32_t ink);
+int world_texture_size(int texture, int *width, int *height);
 int world_object_create(int ext, const char *name);
 int world_object_find(const char *name);
 int world_object_set_mesh(int ext, int object, int mesh);
@@ -34,14 +43,31 @@ int world_object_set_shader(int ext, int object, int shader);
 int world_object_set_transform(int ext, int object, const float matrix[16]);
 int world_object_set_visible(int ext, int object, int visible);
 int world_object_set_uniform(int ext, int object, const char *name, const float *values, int count);
+int world_object_set_texture(int ext, int object, int slot, int texture);
+int world_object_set_blend(int ext, int object, int mode);
 int world_set_background(int ext, float r, float g, float b);
 const char *world_error(void);
 /* Free what an extension created and put back what it changed */
 void world_release(int ext);
 
+/* For the world's own things (sign.c): an object that blinks amber, and the box around everything an
+ * extension made (0, or -1 if it made nothing visible) */
+int world_object_set_blink(int object, int blink);
+int world_extension_bounds(int ext, float lo[3], float hi[3]);
+/* Put a road-works sign beside everything an extension made, to say it's a placeholder */
+int sign_place(int ext, const char *name);
+
+/* Painting on the CPU (paint.c): text and the road-works sign, as RGBA images (free them) */
+int paint_init(const char *font_path);
+uint8_t *paint_text(const char *text, int pixel_height, uint32_t ink, float weight, int *width, int *height);
+uint8_t *paint_sign(int *width, int *height, uint8_t **mask);
+uint8_t *paint_load(const char *path, int *width, int *height);
+const char *paint_load_error(void);
+
 /* Extensions (ext.c). Results go in reply, one or more lines. */
 int ext_init(void);
-int ext_load(const char *name, const char *path, char *reply, size_t size);
+/* A placeholder gets a road-works sign beside what it makes (sign.c) */
+int ext_load(const char *name, const char *path, int placeholder, char *reply, size_t size);
 int ext_unload(const char *name, char *reply, size_t size);
 void ext_list(char *reply, size_t size);
 /* Every loaded extension's on_frame(dt); one that fails is unloaded */
