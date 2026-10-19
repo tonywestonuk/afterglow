@@ -8,21 +8,22 @@ Go, standard library only; a static aarch64 binary of about 6 MB.
 
 ## Use it
 
-On a headset running afterglow, with the computer connected over USB:
+afterglow starts it at boot, after Wi-Fi. The first time, with the computer connected over USB:
 
 ```sh
-tools/console.py --run 'sh /afterglow/bringup.sh all'   # subsystems, Wi-Fi, afterglowd
 tools/console.py --wifi                                 # join a network (asks here)
 tools/console.py --pair                                 # trust this computer; tell Claude Code
 ```
+
+Its line on the headset's status screen says whether it's paired and which client last connected.
 
 `--pair` adds the server to Claude Code for the project in the current directory (`claude mcp add`,
 local scope), so start a new Claude Code session there and its tools appear as `afterglow`. Claude Code
 asks before each tool call unless you allow them.
 
 With afterglow storage ([docs/storage.md](../../docs/storage.md)) the headset keeps the token and its
-Wi-Fi networks, so after a restart only the bring-up is needed: it reconnects and Claude Code finds it
-again (measured: answering 23 s after boot). Without storage, `--wifi` and `--pair` again.
+Wi-Fi networks, so after a restart nothing is needed: it reconnects and Claude Code finds it again
+(measured: answering 30 s after the kernel starts). Without storage, `--wifi` and `--pair` again.
 
 ## Tools
 

@@ -1,13 +1,14 @@
 # afterglow system
 
-afterglow's own userspace. For now that's a static program, `/init`, which runs as PID 1 on our kernel
-and plays the 3D boot animation (or the display calibration screen), plus BusyBox for a development
-shell over USB, the scripts that start the Snapdragon's subsystems and Wi-Fi, and `afterglowd`, the
-MCP server through which Claude Code on a computer works on the headset.
+afterglow's own userspace: a static `/init`, which runs as PID 1 on our kernel, starts the hardware
+bring-up (the Snapdragon's subsystems, Wi-Fi, afterglowd) and plays the 3D boot animation until
+that's done, then shows a status screen; BusyBox for a development shell over USB; and `afterglowd`,
+the MCP server through which Claude Code on a computer works on the headset.
 
 | File | What |
 |---|---|
-| `init/init.c` | PID 1: minimal `/proc`, `/sys`, `/dev`; reads options from the kernel command line; restarts in test builds |
+| `init/init.c` | PID 1: minimal `/proc`, `/sys`, `/dev`, loopback; starts the bring-up; reads options from the kernel command line; restarts in test builds |
+| `init/status.c` | The status screen: one line per file in `/run/afterglow/status` (`label<TAB>text`), in Montserrat via stb_truetype |
 | `init/display.c` | Framebuffer access and per-eye drawing (the panels show the framebuffer rotated 180°; each eye's image can be turned to cancel panel roll) |
 | `init/bootanim.c` | Plays a pre-rendered stereo animation (`tools/pack_anim.py` format), both eyes decoded and drawn in parallel |
 | `init/calibrate.c` | Interactive display roll calibration with the headset's buttons |
@@ -29,6 +30,7 @@ MCP server through which Claude Code on a computer works on the headset.
 |---|---|
 | `afterglow_initramfs` | Kernel patch: use the boot image's ramdisk even though the bootloader passes `skip_initramfs` |
 | `afterglow.roll_left_deg=N`, `afterglow.roll_right_deg=N` | Turn each eye's image N° counterclockwise to cancel panel roll (measured with the calibration screen) |
+| `afterglow.bringup=0` | Don't start the bring-up at boot (the animation then keeps looping) |
 | `afterglow.calibrate=1` | Show the calibration screen instead of the boot animation |
 | `afterglow.test_seconds=N` | Development: restart after N seconds |
 | `afterglow.restart_to=bootloader` | Development: restart into the fastboot menu |
@@ -75,13 +77,20 @@ no late frames.
 
 `/afterglow/bringup.sh` starts the hardware that needs firmware, using the firmware and Qualcomm's
 helper programs already on the headset (its `modem` and `system` partitions, mounted read-only;
-anything they write goes to RAM). For now it's run by hand from the shell:
+anything they write goes to RAM). `/init` runs `bringup.sh all` at boot (log: `/tmp/bringup.log`;
+`afterglow.bringup=0` on the kernel command line turns that off). A step that fails doesn't stop the
+rest, so afterglowd still comes up to find out why.
+
+Measured 2026-10-19, from the kernel starting: bring-up done at 20 s (Wi-Fi waits for the kernel's
+random pool, seeded at about 20 s: there's no hardware RNG driver), Wi-Fi address at 27 s, afterglowd
+answering at 30 s. The status screen then shows System, Wi-Fi and Claude; /init uses no CPU for it.
+
+The first time, or for a new network:
 
 ```sh
-tools/console.py --run 'sh /afterglow/bringup.sh all'    # about 11 s until wlan0 exists; starts afterglowd
 tools/console.py --wifi                                  # asks for a network, password and country
-tools/console.py --run 'sh /afterglow/wifi.sh status'
 tools/console.py --pair                                  # let this computer's Claude Code use afterglowd
+tools/console.py --run 'sh /afterglow/wifi.sh status'
 ```
 
 `--wifi` asks on the computer, so the password never appears on a command line, and sends it to the

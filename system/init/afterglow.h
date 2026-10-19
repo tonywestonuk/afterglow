@@ -1,6 +1,8 @@
 #ifndef AFTERGLOW_H
 #define AFTERGLOW_H
 
+struct fb;
+
 /* Log a line to the kernel log. */
 void klog(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
@@ -17,11 +19,16 @@ const char *usb_shell_tty(void);
 
 /*
  * Play the pre-rendered stereo boot animation (packed by tools/pack_anim.py) on the framebuffer:
- * the intro once, then the loop, until the deadline (now() seconds; 0 = forever). Each eye's image
- * is turned by roll[eye] radians (counterclockwise as the viewer sees it) about its lens centre,
- * to cancel that panel's roll. Returns 0 when the deadline is reached, -1 on error.
+ * the intro once, then the loop, until the deadline (now() seconds; 0 = forever) or, once the intro
+ * has played, until *stop is set. Each eye's image is turned by roll[eye] radians (counterclockwise
+ * as the viewer sees it) about its lens centre, to cancel that panel's roll. Returns 0 when it
+ * stops, -1 on error.
  */
-int bootanim_play(const char *anim_path, const char *fb_path, const double roll[2], double deadline);
+int bootanim_play(const char *anim_path, struct fb *fb, const double roll[2], double deadline,
+                  const volatile int *stop);
+
+/* The status screen (see status.c), turned like the animation, until the deadline. -1 on error. */
+int status_run(struct fb *fb, const double roll[2], double deadline);
 
 /*
  * Interactive display roll calibration with the headset's buttons (see calibrate.c), starting from

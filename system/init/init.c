@@ -1,8 +1,9 @@
 /*
- * afterglow's first process (PID 1). For now it sets up a minimal environment, starts the USB serial
- * console (kernel log out, commands in) with a BusyBox shell on its second port, and plays the boot
- * animation. Development builds restart after afterglow.test_seconds=N (kernel command line), into
- * afterglow.restart_to if given.
+ * afterglow's first process (PID 1). It sets up a minimal environment, starts the USB serial console
+ * (kernel log out, commands in) with a BusyBox shell on its second port, starts the hardware bring-up
+ * (Wi-Fi, afterglowd: system/scripts/bringup.sh), and plays the boot animation until that's done,
+ * then shows the status screen. Development builds restart after afterglow.test_seconds=N (kernel
+ * command line), into afterglow.restart_to if given.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -27,6 +28,7 @@
 #include <sys/wait.h>
 
 #include "afterglow.h"
+#include "display.h"
 
 static int kmsg_fd = -1;
 
@@ -217,21 +219,52 @@ struct display_job {
     int calibrate;
 };
 
+/* Set when the hardware bring-up has finished: the boot animation then gives way to the status screen */
+static volatile int system_ready;
+
 /* The displays run on their own thread, so init's main loop is free to look after processes */
 static void *display_thread(void *arg)
 {
     struct display_job *job = arg;
+    struct fb fb;
     if (make_fb_node() != 0) {
         klog("no framebuffer: /sys/class/graphics/fb0/dev unreadable (%s)", strerror(errno));
     } else if (job->calibrate) {
         if (calibrate_run("/dev/fb0", job->degrees, job->deadline) != 0)
             klog("calibration failed");
-    } else {
+    } else if (fb_open(&fb, "/dev/fb0") == 0) {
+        /* One framebuffer for both, so the handover doesn't flash black */
         double roll[2] = { job->degrees[0] * M_PI / 180, job->degrees[1] * M_PI / 180 };
-        if (bootanim_play("/afterglow/boot.anim", "/dev/fb0", roll, job->deadline) != 0)
+        if (bootanim_play("/afterglow/boot.anim", &fb, roll, job->deadline, &system_ready) != 0)
             klog("boot animation failed");
+        if (status_run(&fb, roll, job->deadline) != 0)
+            klog("status screen failed");
     }
     return NULL;
+}
+
+/*
+ * The hardware bring-up: firmware, Wi-Fi, afterglowd (/afterglow/bringup.sh all), detached, logging to
+ * /tmp/bringup.log. Off with afterglow.bringup=0 on the kernel command line.
+ */
+static pid_t spawn_bringup(void)
+{
+    static char *const argv[] = { "sh", "/afterglow/bringup.sh", "all", NULL };
+    static char *const envp[] = { "PATH=/sbin:/bin:/usr/sbin:/usr/bin", "HOME=/", NULL };
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* Only async-signal-safe calls between fork and exec: init has other threads */
+        setsid();
+        int in = open("/dev/null", O_RDONLY), out = open("/tmp/bringup.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (in < 0 || out < 0)
+            _exit(127);
+        dup2(in, 0), dup2(out, 1), dup2(out, 2);
+        execve("/bin/sh", argv, envp);
+        _exit(127);
+    }
+    if (pid < 0)
+        klog("fork bring-up: %s", strerror(errno));
+    return pid;
 }
 
 /* A BusyBox shell on the development serial port, as the session leader with it as its terminal */
@@ -300,7 +333,9 @@ int main(void)
 
     /* As PID 1: reap every exited process, keep the development shell running, end test builds */
     const char *shell_tty = usb_shell_tty();
-    pid_t shell = -1;
+    pid_t shell = -1, bringup = -1;
+    if (cmdline_number("afterglow.bringup", 1) != 0)
+        bringup = spawn_bringup();
     double next_shell = 0;
     for (;;) {
         int status;
@@ -309,6 +344,10 @@ int main(void)
             if (pid == shell) {
                 klog("shell exited (status %d)", status);
                 shell = -1;
+            } else if (pid == bringup) {
+                klog("bring-up finished (status %d; log /tmp/bringup.log)", status);
+                bringup = -1;
+                system_ready = 1;
             }
         }
         if (shell_tty && shell < 0 && now() >= next_shell) {

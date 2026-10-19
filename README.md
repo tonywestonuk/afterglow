@@ -36,6 +36,8 @@ Done so far:
   logs and sees the displays over Wi-Fi, paired over USB ([system/afterglowd](system/afterglowd/README.md)).
 - **Its own storage**, on the spare slot's system partition: the headset remembers its Wi-Fi network and
   its pairing across restarts ([docs/storage.md](docs/storage.md)).
+- **It comes up by itself**: about 30 s after `fastboot boot` it's on Wi-Fi with afterglowd answering, and
+  the boot animation gives way to a status screen.
 
 Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs/rooting-and-backup.md).
 
@@ -75,9 +77,10 @@ Details: [docs/hardware.md](docs/hardware.md), [docs/rooting-and-backup.md](docs
 
 afterglow's own code is [MIT](LICENSE). Changes to the Linux kernel are GPL-2.0, like the kernel itself.
 Boot images also include third-party programs built from their upstream releases by
-`system/third_party/Dockerfile`: BusyBox (GPL-2.0) and wpa_supplicant (BSD-3-Clause), statically linked
-with musl (MIT), libnl (LGPL-2.1) and OpenSSL (Apache-2.0); their licences are in the image under
-`/usr/share/licenses`.
+`system/third_party/Dockerfile`: BusyBox (GPL-2.0), wpa_supplicant (BSD-3-Clause) and e2fsprogs
+(GPL-2.0), statically linked with musl (MIT), libnl (LGPL-2.1) and OpenSSL (Apache-2.0); `/init` uses
+stb_truetype (public domain / MIT) and the Montserrat typeface (SIL OFL). Their licences are in the
+image under `/usr/share/licenses`.
 Meta's firmware is not ours to distribute; tools extract it from each user's own headset or from Meta's
 official update files.
 

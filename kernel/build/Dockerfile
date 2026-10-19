@@ -36,6 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc-aarch64-lin
 RUN curl -fsSL -o /tmp/zstd.tar.gz https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz \
     && echo "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3  /tmp/zstd.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/zstd.tar.gz -C /opt && mv /opt/zstd-1.5.7 /opt/zstd && rm /tmp/zstd.tar.gz
+# stb_truetype 1.26 (public domain / MIT), which renders /init's status text from a TrueType font
+RUN mkdir -p /opt/stb && curl -fsSL -o /opt/stb/stb_truetype.h \
+        https://raw.githubusercontent.com/nothings/stb/6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760/stb_truetype.h \
+    && echo "ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab  /opt/stb/stb_truetype.h" | sha256sum -c -
 # (BusyBox and other third-party userspace: system/third_party, native arm64 on musl)
 
 ENV PATH=/opt/aarch64-linux-android-4.9/bin:/opt/arm-linux-androideabi-4.9/bin:$PATH \

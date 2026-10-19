@@ -24,6 +24,8 @@ set -u
 
 slot=$(sed -n 's/.*androidboot.slot_suffix=\([^ ]*\).*/\1/p' /proc/cmdline)
 log() { echo "bringup: $*"; echo "bringup: $*" > /dev/kmsg; }
+# A line on the headset's status screen (system/init/status.c): status FILE LABEL TEXT
+status() { mkdir -p /run/afterglow/status && printf '%s\t%s\n' "$2" "$3" > "/run/afterglow/status/$1"; }
 
 # Block device node for a partition, found by its GPT name
 part_node() {
@@ -250,13 +252,20 @@ wifi() {
     fi
     [ -e $conf ] || printf 'ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n' > $conf
     chmod 0600 $conf
+    if grep -q "network={" $conf; then
+        status 20-wifi Wi-Fi "connecting…"
+    else
+        status 20-wifi Wi-Fi "no network saved"
+    fi
     ip link set wlan0 up
     daemon wpa_supplicant /bin/wpa_supplicant -i wlan0 -D nl80211 -c $conf
     daemon udhcpc udhcpc -f -i wlan0 -A 3 -x hostname:afterglow -s /afterglow/udhcpc.sh
+    # So wifi.sh works as soon as this returns. Early in a boot that can take a while: wpa_supplicant
+    # first waits for the kernel's random pool, which is seeded about 20 s after boot (no hardware RNG)
     i=0
-    until [ -S /var/run/wpa_supplicant/wlan0 ]; do   # so wifi.sh works as soon as this returns
+    until [ -S /var/run/wpa_supplicant/wlan0 ]; do
         i=$((i + 1))
-        [ $i -le 50 ] || { log "wpa_supplicant not ready"; return 1; }
+        [ $i -le 300 ] || { log "wpa_supplicant not ready after 30 s"; return 1; }
         sleep 0.1
     done
 }
@@ -276,15 +285,25 @@ afterglowd() {
 }
 
 [ $# -gt 0 ] || { sed -n '6,22p' "$0"; exit 1; }
+all=
 for step in "$@"; do
-    [ "$step" = all ] &&
+    [ "$step" = all ] && all=1 &&
         set -- mounts android storage ssr adsp gpu efs tftp pdmapper cnss permgr wlan wifi afterglowd
 done
+# A failed step doesn't stop the rest: with afterglowd still running, the headset can be reached to
+# find out why
+[ -z "$all" ] || status 10-system System "starting…"
+failed=
 for step in "$@"; do
     case $step in
         mounts | android | storage | ssr | adsp | gpu | efs | tftp | pdmapper | cnss | permgr | modem | wlan | \
             wifi | afterglowd)
-            $step || { log "$step failed"; exit 1; } ;;
+            $step || { log "$step failed"; failed="$failed $step"; } ;;
         *) echo "unknown step: $step"; exit 1 ;;
     esac
 done
+if [ -n "$failed" ]; then
+    [ -z "$all" ] || status 10-system System "failed:$failed"
+    exit 1
+fi
+[ -z "$all" ] || status 10-system System ready

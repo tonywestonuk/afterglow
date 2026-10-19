@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -38,12 +40,37 @@ func main() {
 	if *name != "" {
 		go advertise(*name)
 	}
+	s := &server{tokenFile: *tokenFile, tools: tools()}
+	go s.showStatus("/run/afterglow/status/30-claude")
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", &server{tokenFile: *tokenFile, tools: tools()})
+	mux.Handle("/mcp", s)
 	srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	klog("version %s serving MCP on %s/mcp", version, *listen)
 	if err := srv.ListenAndServe(); err != nil {
 		klog("%v", err)
 		os.Exit(1)
+	}
+}
+
+// showStatus keeps afterglowd's line on the headset's status screen (system/init/status.c) current:
+// whether a computer is paired, and which client last connected. Pairing only writes the token
+// file, so it's checked every couple of seconds.
+func (s *server) showStatus(path string) {
+	shown := ""
+	for {
+		text := "not paired"
+		if data, err := os.ReadFile(s.tokenFile); err == nil && strings.TrimSpace(string(data)) != "" {
+			text = "paired · afterglow.local"
+		}
+		if client, _ := s.client.Load().(string); client != "" {
+			text = client + " connected"
+		}
+		// Written aside and renamed into place; the status screen skips names starting with a dot
+		temp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path))
+		if text != shown && os.MkdirAll(filepath.Dir(path), 0o755) == nil &&
+			os.WriteFile(temp, []byte("Claude\t"+text+"\n"), 0o644) == nil && os.Rename(temp, path) == nil {
+			shown = text
+		}
+		time.Sleep(2 * time.Second)
 	}
 }

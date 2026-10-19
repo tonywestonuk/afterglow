@@ -186,6 +186,10 @@ Running Android's programs without Android:
   Android's HIDL service manager, which waits forever for the `hwservicemanager.ready` property.
   afterglow uses upstream `wpa_supplicant` 2.12 instead (`system/third_party`).
 
+Boot timing with `/init` starting the bring-up (2026-10-19, from the kernel starting): Wi-Fi firmware
+ready at 14 s; the kernel's random pool is seeded only at about 20 s (no hardware RNG driver is
+registered: `rng_available` is empty), and `wpa_supplicant` waits for it; Wi-Fi address at 27 s.
+
 Measured on a home network (2026-10-19): 21 networks in range across 2.4 and 5 GHz; joined at
 WPA2-PSK on 5 GHz, link rate 866 Mbit/s at -40 dBm; a 64 MB HTTP download from a Mac took 10.2 s
 (about 6.3 MB/s, served by Python's single-threaded `http.server`, so a lower bound). Ping to the

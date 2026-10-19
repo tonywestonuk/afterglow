@@ -15,5 +15,6 @@ case $1 in
         : > /etc/resolv.conf
         for d in $dns; do echo "nameserver $d" >> /etc/resolv.conf; done
         echo "<6>afterglow: $interface has address $ip" > /dev/kmsg
+        [ "$interface" != wlan0 ] || { mkdir -p /run/afterglow/status && printf 'Wi-Fi\t%s\n' "$ip" > /run/afterglow/status/20-wifi; }
         ;;
 esac

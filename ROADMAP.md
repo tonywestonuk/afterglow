@@ -51,14 +51,14 @@ Design principles:
 - [x] Read the buttons; interactive display roll calibration
 - [x] USB serial console: live kernel log and commands ([tools/console.py](tools/console.py))
 - [x] Development shell over USB (BusyBox); hardware survey ([docs/hardware.md](docs/hardware.md))
-- [ ] Text console on the displays
+- [ ] Text console on the displays (the status screen renders text already)
 - [x] Start the Snapdragon's subsystems and load their firmware (adsp, modem, a540_zap): the key to
       Wi-Fi, audio and the GPU ([how](docs/hardware.md#subsystems-and-wi-fi-without-android))
 - [x] Wi-Fi: scan, join (WPA2), DHCP, DNS, with upstream `wpa_supplicant`
 - [x] Keep settings (Wi-Fi networks, pairing) across restarts: `/storage` on the spare slot's system
       partition ([docs/storage.md](docs/storage.md))
-- [ ] Start afterglow's services at boot (today `bringup.sh all` is run over USB), and stop the boot
-      animation once the system is up (it keeps ~1.6 cores busy)
+- [x] Start afterglow's services at boot, then a status screen instead of the looping animation
+- [ ] Hardware RNG driver (the random pool takes ~20 s to seed, which holds up Wi-Fi)
 - [ ] Replace Qualcomm's Android helper programs with open ones (linux-msm's `pd-mapper`,
       `tqftpserv`, `rmtfs`), so afterglow doesn't need the `system` partition. They use QRTR sockets;
       Meta's kernel has the older IPC Router (`CONFIG_IPC_ROUTER`), so they'd need porting

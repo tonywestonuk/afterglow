@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 )
 
 // Protocol versions this server can speak, newest first. All of them are the same for a server
@@ -57,6 +58,7 @@ type response struct {
 type server struct {
 	tokenFile string
 	tools     []tool
+	client    atomic.Value // name of the last client to connect, for the status screen
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +131,11 @@ func (s *server) handle(req request) (any, *rpcError) {
 			agreed = p.ProtocolVersion
 		}
 		klog("client connected: %s %s (MCP %s)", p.ClientInfo.Name, p.ClientInfo.Version, agreed)
+		name := p.ClientInfo.Name
+		if name == "claude-code" {
+			name = "Claude Code"
+		}
+		s.client.Store(name)
 		return map[string]any{
 			"protocolVersion": agreed,
 			"capabilities":    map[string]any{"tools": map[string]any{}},

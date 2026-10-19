@@ -187,14 +187,12 @@ static const struct header *anim_load(const char *path, size_t *size, struct eye
     return h;
 }
 
-int bootanim_play(const char *anim_path, const char *fb_path, const double roll[2], double deadline)
+int bootanim_play(const char *anim_path, struct fb *fb, const double roll[2], double deadline,
+                  const volatile int *stop)
 {
-    struct fb fb;
-    if (fb_open(&fb, fb_path) != 0)
-        return -1;
     size_t size;
     struct eye eyes[2];
-    const struct header *h = anim_load(anim_path, &size, eyes, &fb, roll);
+    const struct header *h = anim_load(anim_path, &size, eyes, fb, roll);
     if (!h)
         return -1;
     const struct entry *index = (const struct entry *)(h + 1);
@@ -203,16 +201,16 @@ int bootanim_play(const char *anim_path, const char *fb_path, const double roll[
     unsigned shown = 0, late = 0;
     for (unsigned f = 0;; f = f + 1 < h->frames ? f + 1 : h->loop_start) {
         double t0 = now();
-        if (deadline > 0 && t0 >= deadline)
+        if ((deadline > 0 && t0 >= deadline) || (*stop && shown >= h->loop_start))   /* intro always plays */
             break;
 
         /* Both eyes in parallel, into the hidden page */
-        if (eye_frame_pair(eyes, &index[f * 2], fb_back(&fb)) != 0) {
+        if (eye_frame_pair(eyes, &index[f * 2], fb_back(fb)) != 0) {
             klog("frame %u: couldn't decode", f);
             return -1;
         }
         work += now() - t0;
-        fb_flip(&fb);
+        fb_flip(fb);
         shown++;
 
         /* Pace to the animation's frame rate */

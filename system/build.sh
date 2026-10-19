@@ -9,6 +9,7 @@ ANIM="${1:?boot animation .anim}"
 OUT=/work/out/system
 ROOT="$OUT/initramfs"
 ZSTD=/opt/zstd/lib
+STB=/opt/stb
 THIRD=/work/out/third_party
 AFTERGLOWD=/work/out/afterglowd/afterglowd
 [ -x "$THIRD/bin/busybox" ] || { echo "no $THIRD: build system/third_party first (see system/README.md)" >&2; exit 1; }
@@ -29,7 +30,7 @@ done < "$THIRD/share/busybox/busybox.links"
 OBJS=()
 for src in /work/system/init/*.c; do
     obj="$OUT/$(basename "${src%.c}").o"
-    aarch64-linux-gnu-gcc -c -O2 -Wall -Wextra -I"$ZSTD" -o "$obj" "$src"
+    aarch64-linux-gnu-gcc -c -O2 -Wall -Wextra -I"$ZSTD" -I"$STB" -o "$obj" "$src"
     OBJS+=("$obj")
 done
 aarch64-linux-gnu-gcc -static -O2 -pthread -I"$ZSTD" -DZSTD_DISABLE_ASM -w \
@@ -47,6 +48,12 @@ for src in /work/system/tools/*.c; do
 done
 cp "$OUT/init" "$ROOT/init"
 cp "$ANIM" "$ROOT/afterglow/boot.anim"
+# The status screen's typeface (SIL Open Font License)
+cp /work/brand/fonts/Montserrat-Light-merged.ttf "$ROOT/afterglow/font.ttf"
+mkdir -p "$ROOT/usr/share/licenses/montserrat"
+cp /work/brand/fonts/OFL-Montserrat.txt "$ROOT/usr/share/licenses/montserrat/"
+mkdir -p "$ROOT/usr/share/licenses/stb_truetype"
+sed -n '/^This software is available under 2 licenses/,$p' "$STB/stb_truetype.h" > "$ROOT/usr/share/licenses/stb_truetype/LICENSE"
 install -m 0755 /work/system/scripts/*.sh "$ROOT/afterglow/"
 install -m 0755 "$OUT"/tools/* "$ROOT/bin/"
 install -m 0755 "$AFTERGLOWD" "$ROOT/bin/"
