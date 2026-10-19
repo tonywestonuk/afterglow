@@ -276,8 +276,9 @@ func loadExtension(args json.RawMessage) ([]any, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		start := time.Now()
-		out, err := exec.CommandContext(ctx, "/bin/sh", compiler, source, versionPath(a.Name, version, "wasm"),
-			a.Name+".c").CombinedOutput()
+		cc := exec.CommandContext(ctx, "/bin/sh", compiler, source, versionPath(a.Name, version, "wasm"), a.Name+".c")
+		cc.Env = append(os.Environ(), "AFTERGLOW_WORLD_DIR="+worldDir()) // its include/ holds shared headers
+		out, err := cc.CombinedOutput()
 		if err != nil {
 			klog("extension %s v%d didn't compile", a.Name, version)
 			return []any{text(fmt.Sprintf("%s v%d didn't compile (the world is unchanged):\n%s", a.Name, version,

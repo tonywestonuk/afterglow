@@ -50,6 +50,9 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
 - One extension per thing that changes on its own (the dog, the cat, the ducks, the village): loading
   a new version reloads only that one, and everything else carries on. They see each other's objects
   (object_find, object_get_transform) and share values (remember, recall).
+- Code several extensions use goes in a shared header: write_file it to /storage/world/include/NAME.h
+  and #include "NAME.h". Each compiled version keeps the code it was built with, so changing a shared
+  header changes only extensions compiled afterwards (reload the ones that should pick it up).
 - Keep state: put an extension's state in one struct and call keep("name", &state, sizeof state) once
   in on_load(). A new version then carries on where the old one was (the dog where it had walked to)
   instead of starting again, and so does the whole scene after a world restart.

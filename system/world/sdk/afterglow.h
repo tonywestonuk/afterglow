@@ -8,7 +8,8 @@
  *   void on_unload(void)        just before it's replaced or removed, or the world stops: remember() state
  * Make one extension per thing that changes on its own (the dog, the cat, the ducks): changing one then
  * reloads only that one, and the rest carry on. They can still see each other (object_get_transform)
- * and share values (remember, recall).
+ * and share values (remember, recall), and share code: headers in /storage/world/include can be
+ * #included by any extension (each compiled version keeps the code it was built with).
  * Everything an extension creates goes when it's unloaded, and everything it changed on objects it
  * didn't create (such as the world's "floor") is put back, so each new version starts from a clean
  * world. A crash (a trap) or an endless loop unloads just that extension.
