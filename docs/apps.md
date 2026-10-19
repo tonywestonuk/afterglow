@@ -106,8 +106,11 @@ The project's Claude Code hooks (`.claude/settings.json`) run `tools/claude_stat
 each tool call, when a prompt arrives and when Claude stops. It sends afterglowd's `/status` (with the
 pairing token) Claude's latest words, from the session's transcript, and the current step, from the
 tool call itself: a command's description, the file being edited, "Loading cat into the world".
-afterglowd shows it on the status screen and passes it to the world, which shows it on a dark panel
-two metres in front of where the wearer looks, below eye level, until 20 s pass without news. The
+afterglowd shows it on the status screen and passes it to the world, which shows it on the "Claude at
+work" sign: an amber message board under the plate, like a road-works matrix sign. Placeholders'
+signs carry it; while Claude works with no placeholder up, the world stands a sign of its own a little
+ahead and to the right of where the wearer looks (moving it if they turn well away), and takes it away
+20 s after the last news, or 6 s after "Done". The
 words can be a step or two behind (Claude Code saves a message a little after its tool starts); the
 step is current. The hook returns at once; a detached copy does the sending, so a headset that's off
 never slows Claude down. New hooks take effect in a session after `/hooks` or a restart.

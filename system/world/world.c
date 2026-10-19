@@ -491,6 +491,21 @@ void world_texture_delete(int texture)
                 objects[k].textures[s] = 0;
 }
 
+/* Repaint a texture in place (anything showing it shows the new picture) */
+int world_texture_update(int texture, const uint8_t *rgba, int width, int height)
+{
+    struct texture *t = texture_get(texture);
+    if (!t)
+        return fail("there's no texture %d", texture);
+    glBindTexture(GL_TEXTURE_2D, t->id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    t->width = width, t->height = height;
+    return 0;
+}
+
 void world_mesh_delete(int mesh)
 {
     struct mesh *m = mesh_get(mesh);
@@ -677,6 +692,16 @@ static void drop_changes(int object)
             memmove(&changes[i], &changes[i + 1], (--change_count - i) * sizeof(changes[0]));
         else
             i++;
+}
+
+/* Take away one of the world's own objects */
+void world_object_delete(int object)
+{
+    struct object *o = object_get(object);
+    if (o) {
+        o->used = 0;
+        drop_changes(object);
+    }
 }
 
 void world_release(int ext)

@@ -72,6 +72,8 @@ void status_set(const char *text);
 void status_frame(double now, const float head_rotation[9], const float head_centre[3]);
 void world_texture_delete(int texture);
 void world_mesh_delete(int mesh);
+int world_texture_update(int texture, const uint8_t *rgba, int width, int height);
+void world_object_delete(int object);
 
 /* Painting on the CPU (paint.c): text and the "Claude at work" sign, as RGBA images (free them) */
 int paint_init(const char *font_path);
