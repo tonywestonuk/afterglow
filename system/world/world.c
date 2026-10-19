@@ -939,9 +939,24 @@ static int display_open(void)
 
 static GLuint pbo[2];
 static GLsync drawing;                     /* done when the frame on the GPU is */
-static int drawing_pbo = -1, shown_pbo = -1;
+static int drawing_pbo = -1, next_pbo;
 static float drawn_rotation[9];
-/* Shared with the display thread, under shown_lock: the newest finished frame (kept mapped) and its pose */
+/* Finished frames, copied out of the readback buffers (which the CPU sees uncached: fine to stream
+ * through once, far too slow to sample) into ordinary memory, two so one can be filled while the other
+ * is shown */
+static uint8_t *frames[2];
+static int next_frame;
+
+static int frames_open(void)
+{
+    for (int i = 0; i < 2; i++)
+        if (!(frames[i] = malloc((size_t)W * H * 4))) {
+            wlog("no memory for frames");
+            return -1;
+        }
+    return 0;
+}
+/* Shared with the display thread, under shown_lock: the newest finished frame and its pose */
 static pthread_mutex_t shown_lock = PTHREAD_MUTEX_INITIALIZER;
 static const uint8_t *shown;
 static float shown_rotation[9];
@@ -951,7 +966,8 @@ static double copying;
 /* After drawing: read the frame into a free buffer, with a fence to say when it's done */
 static void frame_submit(void)
 {
-    int k = shown_pbo == 0 ? 1 : 0;
+    int k = next_pbo;
+    next_pbo ^= 1;
     glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[k]);
     glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, 0);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
@@ -971,32 +987,163 @@ static int frame_collect(GLuint64 wait_ns)
         return 0;
     glDeleteSync(drawing);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[drawing_pbo]);
-    const uint8_t *frame = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)W * H * 4, GL_MAP_READ_BIT);
-    int old = shown_pbo;
-    pthread_mutex_lock(&shown_lock);   /* waits if the display thread is copying the old one */
-    if (frame) {
-        shown = frame;
-        shown_pbo = drawing_pbo;
-        memcpy(shown_rotation, drawn_rotation, sizeof(shown_rotation));
-    }
-    pthread_mutex_unlock(&shown_lock);
-    if (frame && old >= 0) {
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[old]);
+    const uint8_t *mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)W * H * 4, GL_MAP_READ_BIT);
+    if (mapped) {
+        uint8_t *frame = frames[next_frame];   /* not the one being shown */
+        memcpy(frame, mapped, (size_t)W * H * 4);
         glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        pthread_mutex_lock(&shown_lock);   /* waits if the display thread is mid-copy */
+        shown = frame;
+        memcpy(shown_rotation, drawn_rotation, sizeof(shown_rotation));
+        pthread_mutex_unlock(&shown_lock);
+        next_frame ^= 1;
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     drawing_pbo = -1;
     return 1;
 }
 
-/* Copy the newest frame to the hidden page, slid by the head's turn since it was drawn (under shown_lock) */
+/*
+ * Reprojection with a tilt: each eye's picture is also turned about its lens centre (exact, as the lens
+ * is symmetric about it). For the small turns between frames, along a row of the framebuffer the picture
+ * comes from one row of the drawn frame at a fixed offset for 1/angle pixels at a time, then the next row:
+ * so a row is a few dozen straight copies, nearly as cheap as sliding it (a pixel-by-pixel turn took
+ * 15-50 ms a refresh). Accurate to about a pixel up to 3°; rows are shared among the display thread
+ * and two helpers.
+ */
+#define TURN_HELPERS 2
+#define TILT_REPROJECTION 0   /* off until it fits in a refresh (docs/apps.md) */
+#define TILT_MAX 0.05f   /* radians: beyond about 3° the picture is turned no further */
+
+struct turn_job {
+    uint8_t *page;
+    const uint32_t *src;
+    float angle;          /* counterclockwise as the wearer sees it */
+    float right, up;      /* the slide, in pixels as the wearer sees it */
+    int first_row, end_row;
+    double started, finished;   /* for the report */
+};
+static double turn_wake_max, turn_rows_max;
+
+static struct turn_job turn_jobs[TURN_HELPERS + 1];
+static pthread_mutex_t turn_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t turn_start = PTHREAD_COND_INITIALIZER, turn_done = PTHREAD_COND_INITIALIZER;
+static unsigned turn_generation, turn_finished;
+static unsigned turned;          /* refreshes that needed turning, for the report */
+static double slowest_copy;
+static float test_tilt;          /* added to every refresh's tilt by the "test-tilt" command, to measure */
+
+static void turn_rows(struct turn_job *j)
+{
+    j->started = now();
+    /* In framebuffer coordinates (the wearer's view turned 180°, which leaves turns turning the same way),
+     * the pixel at offset p from the lens centre shows the drawn frame at offset R^-1 (p + slide); for a
+     * small angle a, R^-1 (x, y) is (x - a y, y + a x) */
+    float a = j->angle;
+    for (int half = 0; half < 2; half++) {
+        float cx, cy;
+        lens_centre_on_screen(1 - half, &cx, &cy);   /* the framebuffer's left half is the right eye */
+        cx = W - 1 - cx, cy = H - 1 - cy;
+        int lo = half * EYE_W, hi = lo + EYE_W;
+        for (int y = j->first_row; y < j->end_row; y++) {
+            uint32_t line[EYE_W];   /* built in ordinary memory, then copied to the framebuffer whole */
+            float vy = y - cy - j->up;
+            int shift = (int)lrintf(j->right - vy * a);   /* source x = x + shift, along the whole row */
+            int x = lo;
+            while (x < hi) {
+                float source_y = cy + vy + (x - cx + j->right) * a;
+                int row = (int)floorf(source_y + 0.5f), end = hi;
+                if (a > 1e-6f)
+                    end = x + (int)ceilf((row + 0.5f - source_y) / a);
+                else if (a < -1e-6f)
+                    end = x + (int)ceilf((source_y - (row - 0.5f)) / -a);
+                if (end <= x)
+                    end = x + 1;
+                if (end > hi)
+                    end = hi;
+                /* The part of [x, end) whose source lies in this eye's half of a real row */
+                int from = x, to = end;
+                if (from + shift < lo)
+                    from = lo - shift;
+                if (to + shift > hi)
+                    to = hi - shift;
+                if (row < 0 || row >= H || from >= to)
+                    memset(&line[x - lo], 0, (size_t)(end - x) * 4);
+                else {
+                    if (from > x)
+                        memset(&line[x - lo], 0, (size_t)(from - x) * 4);
+                    const uint32_t *piece = j->src + (size_t)row * W + from + shift;
+                    /* This source row's next piece is wanted by the next output row: fetch it now, as the
+                     * hardware can't follow the dozens of rows read in turn */
+                    __builtin_prefetch(piece + (to - from) + 16);
+                    __builtin_prefetch(piece + (to - from) + 32);
+                    __builtin_prefetch(piece + (to - from) + 48);
+                    memcpy(&line[from - lo], piece, (size_t)(to - from) * 4);
+                    if (to < end)
+                        memset(&line[to - lo], 0, (size_t)(end - to) * 4);
+                }
+                x = end;
+            }
+            memcpy((uint32_t *)(j->page + (size_t)y * fb.stride) + lo, line, sizeof(line));
+        }
+    }
+    j->finished = now();
+}
+
+static void *turn_helper(void *arg)
+{
+    int k = (int)(intptr_t)arg;
+    pin_thread(4 + k, 4 + k, 50);   /* cores 5 and 6, beside the display thread on 7 */
+    unsigned seen = 0;
+    for (;;) {
+        pthread_mutex_lock(&turn_lock);
+        while (turn_generation == seen)
+            pthread_cond_wait(&turn_start, &turn_lock);
+        seen = turn_generation;
+        pthread_mutex_unlock(&turn_lock);
+        turn_rows(&turn_jobs[k]);
+        pthread_mutex_lock(&turn_lock);
+        turn_finished++;
+        pthread_cond_signal(&turn_done);
+        pthread_mutex_unlock(&turn_lock);
+    }
+    return NULL;
+}
+
+static void turn_copy(uint8_t *page, float angle, float right, float up)
+{
+    for (int k = 0; k <= TURN_HELPERS; k++)
+        turn_jobs[k] = (struct turn_job){ page, (const uint32_t *)shown, angle, right, up,
+                                          H * k / (TURN_HELPERS + 1), H * (k + 1) / (TURN_HELPERS + 1), 0, 0 };
+    pthread_mutex_lock(&turn_lock);
+    turn_finished = 0;
+    turn_generation++;
+    pthread_cond_broadcast(&turn_start);
+    pthread_mutex_unlock(&turn_lock);
+    double t0 = now();
+    turn_rows(&turn_jobs[0]);
+    pthread_mutex_lock(&turn_lock);
+    while (turn_finished < TURN_HELPERS)
+        pthread_cond_wait(&turn_done, &turn_lock);
+    pthread_mutex_unlock(&turn_lock);
+    for (int k = 0; k <= TURN_HELPERS; k++) {
+        turn_wake_max = fmax(turn_wake_max, turn_jobs[k].started - t0);
+        turn_rows_max = fmax(turn_rows_max, turn_jobs[k].finished - turn_jobs[k].started);
+    }
+}
+
+/* Copy the newest frame to the hidden page, moved for the head's turn since it was drawn (under shown_lock) */
 static void frame_copy(const float now_rotation[9])
 {
-    /* Where the drawn frame's straight ahead lies now, in the head's present axes (its columns) */
+    /* Where the drawn frame's straight ahead and up lie now, in the head's present axes (its columns) */
     const float *r = shown_rotation, *d = now_rotation;
-    float ahead[3] = { -r[6], -r[7], -r[8] }, f[3];
-    for (int k = 0; k < 3; k++)
+    float ahead[3] = { -r[6], -r[7], -r[8] }, f[3], u[3];
+    for (int k = 0; k < 3; k++) {
         f[k] = d[k * 3] * ahead[0] + d[k * 3 + 1] * ahead[1] + d[k * 3 + 2] * ahead[2];
+        u[k] = d[k * 3] * r[3] + d[k * 3 + 1] * r[4] + d[k * 3 + 2] * r[5];
+    }
+    float tilt = atan2f(-u[0], u[1]) + test_tilt;   /* how far to turn the picture, counterclockwise as seen */
+    tilt = tilt > TILT_MAX ? TILT_MAX : tilt < -TILT_MAX ? -TILT_MAX : tilt;
     int right = 0, up = 0;   /* pixels, as the wearer sees it */
     if (f[2] < -0.5f) {
         right = (int)lrintf(lens_pixels_per_tan() * f[0] / -f[2]);
@@ -1007,7 +1154,11 @@ static void frame_copy(const float now_rotation[9])
     int back = fb.pages == 2 ? fb.page ^ 1 : 0;
     uint8_t *page = fb.mem + (size_t)back * fb.stride * H;
     const size_t row = (size_t)W * 4, half = (size_t)EYE_W * 4;
-    if (right == 0 && up == 0 && fb.stride == row)
+    if (TILT_REPROJECTION && fabsf(tilt) > 0.0005f) {   /* a tilt worth turning for: 0.03°, half a pixel at the edge */
+        turn_copy(page, tilt, right, up);
+        turned++;
+    }
+    else if (right == 0 && up == 0 && fb.stride == row)
         memcpy(page, shown, row * H);
     else
         /* The framebuffer is the wearer's view turned 180°: their right is to the left here, their up is
@@ -1057,8 +1208,7 @@ static void *display_thread(void *arg)
     (void)arg;
     /* The copy must be done within a refresh: on a fast core (4-7 are the 2.3 GHz ones), ahead of all else */
     pin_thread(7, 7, 50);
-    double last = now(), flipped = 0;
-    unsigned logged = 0;
+    double last = now(), flipped = 0, logged = 0;
     const uint8_t *previous = NULL;
     while (running) {
         float now_rotation[9], centre[3];
@@ -1074,6 +1224,8 @@ static void *display_thread(void *arg)
         pthread_mutex_unlock(&shown_lock);
         if (have) {
             double c2 = now();
+            if (c2 - c1 > slowest_copy)
+                slowest_copy = c2 - c1;
             fb.var.yoffset = fb.page * H;
             ioctl(fb.fd, FBIOPAN_DISPLAY, &fb.var);   /* waits for the refresh */
             double c3 = now();
@@ -1081,10 +1233,12 @@ static void *display_thread(void *arg)
             refreshes++;
             if (flipped > 0 && c3 - flipped > 1.5 / FRAME_RATE) {
                 missed++;
-                if (logged++ < 20)   /* the first few, to see what they have in common */
+                if (c3 - logged > 1) {   /* at most one a second */
+                    logged = c3;
                     wlog("missed a refresh: %.1f ms since the last flip; waited %.1f ms for the frame, copied in %.1f "
                          "(%s), flipped in %.1f; IMU sample %.1f ms old", 1000 * (c3 - flipped), 1000 * (c1 - c0),
                          1000 * (c2 - c1), fresh ? "its first copy" : "copied before", 1000 * (c3 - c2), 1000 * imu_age);
+                }
             }
             flipped = c3;
         }
@@ -1138,7 +1292,10 @@ static void control_poll(int listener)
         ext_unload(name, reply, sizeof(reply));
     else if (strcmp(verb, "list") == 0)
         ext_list(reply, sizeof(reply));
-    else if (strcmp(verb, "recentre") == 0) {
+    else if (strcmp(verb, "test-tilt") == 0) {   /* development: turn every refresh by NAME degrees more */
+        test_tilt = strtof(name, NULL) * (float)M_PI / 180;
+        snprintf(reply, sizeof(reply), "every refresh now turned %.2f degrees more\n", test_tilt * 180 / M_PI);
+    } else if (strcmp(verb, "recentre") == 0) {
         head_recentre();
         snprintf(reply, sizeof(reply), "the way the wearer faces is now ahead\n");
     }
@@ -1237,7 +1394,7 @@ int main(void)
     GLuint eye_fbo, eye_buffers, panel_fbo, panel_image;
     if (gles_init() != 0 || gles_framebuffer(W, H, 0, 0, &panel_fbo, &panel_image) != 0 ||
         gles_framebuffer(2 * EYE_W, H, 1, 1, &eye_fbo, &eye_buffers) != 0 || lens_init() != 0 ||
-        display_open() != 0 || make_floor() != 0 || make_standard_shader() != 0 ||
+        display_open() != 0 || frames_open() != 0 || make_floor() != 0 || make_standard_shader() != 0 ||
         ext_init() != 0)
         return 1;
     static const uint8_t white_pixel[4] = { 255, 255, 255, 255 };
@@ -1269,6 +1426,11 @@ int main(void)
     wlog("running: %dx%d, lens-centred, roll %.1f° / %.1f°", W, H, roll[0] * 180 / M_PI, roll[1] * 180 / M_PI);
 
     pin_thread(4, 6, 20);   /* drawing: the fast cores, but never ahead of showing */
+    for (int k = 1; k <= TURN_HELPERS; k++) {
+        pthread_t helper;
+        if (pthread_create(&helper, NULL, turn_helper, (void *)(intptr_t)k) == 0)
+            pthread_detach(helper);
+    }
     pthread_t display;
     if (pthread_create(&display, NULL, display_thread, NULL) != 0) {
         wlog("the display thread didn't start");
@@ -1308,11 +1470,12 @@ int main(void)
             }
             double span = world_time() - report;
             unsigned shown_count = refreshes;
-            wlog("%.1f frames drawn and %.1f shown a second (reprojected in between; %u refreshes missed); %.1f ms a "
-                 "frame to submit, %.1f ms a refresh copying and flipping; GPU %d%% busy", drawn / span,
-                 shown_count / span, missed, drawn ? 1000 * drawing_time / drawn : 0,
-                 shown_count ? 1000 * copying / shown_count : 0, gpu_busy);
-            missed = 0;
+            wlog("%.1f frames drawn and %.1f shown a second (reprojected in between, %u turned for a tilt; %u refreshes "
+                 "missed; slowest copy %.1f ms; turning: a third of the rows took up to %.1f ms, helpers woke within "
+                 "%.1f ms); %.1f ms a frame to submit; GPU %d%% busy", drawn / span, shown_count / span, turned, missed,
+                 1000 * slowest_copy, 1000 * turn_rows_max, 1000 * turn_wake_max, drawn ? 1000 * drawing_time / drawn : 0,
+                 gpu_busy);
+            missed = turned = 0, slowest_copy = turn_rows_max = turn_wake_max = 0;
             report = world_time(), drawn = 0, drawing_time = 0;
             refreshes = 0, copying = 0;
             double hot = soc_temperature();

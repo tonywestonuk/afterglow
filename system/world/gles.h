@@ -72,6 +72,7 @@ void gles_frame_drawn(void);
 int lens_init(void);
 void lens_frustum(int eye, float tangents[4]);
 float lens_pixels_per_tan(void);
+void lens_centre_on_screen(int eye, float *x, float *y);
 void lens_draw(GLuint eye_buffers);
 
 #endif

@@ -68,6 +68,13 @@ static void lens_centre(int eye, float *x, float *y)
     *y = PANEL_H / 2.0f + LENS_DOWN_METERS / pixel;
 }
 
+/* The lens centre on the panels as the wearer sees them (both panels: x 0-2879, y down) */
+void lens_centre_on_screen(int eye, float *x, float *y)
+{
+    lens_centre(eye, x, y);
+    *x += eye * PANEL_W;
+}
+
 /* Each eye buffer's frustum, as tangents: left, right, bottom, top */
 void lens_frustum(int eye, float tangents[4])
 {

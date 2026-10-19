@@ -19,6 +19,7 @@ the MCP server through which Claude Code on a computer works on the headset.
 | `scripts/bringup.sh` | Starts the audio DSP, GPU, modem DSP and Wi-Fi as Android would, with the headset's own firmware ([findings](../docs/hardware.md#subsystems-and-wi-fi-without-android)) |
 | `scripts/wifi.sh`, `scripts/udhcpc.sh` | Scan, join and forget Wi-Fi networks, set the country; apply DHCP leases |
 | `scripts/format_storage.sh` | Make afterglow's storage on the spare slot's system partition ([docs/storage.md](../docs/storage.md)) |
+| `tools/worldctl.c` | `worldctl COMMAND`: a command to the running world's control socket (`list`, `recentre`, `test-tilt`, ...) |
 | `tools/syncboss.c` | `syncboss [-t S] [-x] [-i N]`: switch on SyncBoss (the IMU's microcontroller), ask for IMU samples, report or decode the stream ([docs/hardware.md](../docs/hardware.md#the-imu-syncboss)) |
 | `tools/restart.c` | `restart [bootloader]` from the shell or afterglowd (BusyBox's `reboot` and `poweroff` work too, but can't name a target) |
 | `afterglowd/` | The MCP server: shell, files, screenshots, logs, status, the world's extensions, over Wi-Fi ([README](afterglowd/README.md)) |

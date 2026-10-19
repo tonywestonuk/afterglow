@@ -100,6 +100,23 @@ The lens centres moved to Meta's (60 px further out than the splash logo suggest
 things no longer make the eyes converge. The warp is an extra pass: the village went from 35-40 to
 about 29 frames drawn a second, still shown at every refresh.
 
+## Tilting, not yet (2026-10-19)
+
+Turning and nodding are reprojected (the picture slides); tilting the head isn't, so a tilt shows the
+double image again. Turning the picture on the CPU at every refresh doesn't fit in one (13.9 ms):
+
+| Tried | Cost of a turned copy |
+|---|---|
+| Pixel by pixel from the readback buffer | 48-57 ms: the CPU sees that buffer uncached |
+| Pixel by pixel from a cached copy (frames are now copied out once each) | 48 ms: 4-byte stores to the framebuffer, which is device memory, aren't combined |
+| Rows built in cached memory, then copied whole; three threads | 15-28 ms |
+| Rows as straight copies of pieces of the source rows (a small turn is a slide per row and a different source row every 1/angle pixels) | 27-29 ms: each piece comes from a different row, and the memory system can't follow dozens of interleaved rows (prefetching didn't help) |
+
+So the code is there but off (`TILT_REPROJECTION`). The way forward is the GPU: Oculus's timewarp
+redraws the lens warp at every refresh from the newest eye buffers, turned for the head in all three
+axes, on a high-priority context; that also makes turning and nodding exact at the edges (sliding
+the warped picture isn't). `worldctl test-tilt DEGREES` forces a tilt, to measure without a wearer.
+
 ## Frame rate (2026-10-19)
 
 With tracking, a slow frame rate shows as the world lagging the head. A village scene ran at 23-28
