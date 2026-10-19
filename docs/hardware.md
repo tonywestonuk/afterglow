@@ -77,8 +77,20 @@ device tree; Meta's compositor compensates, and so does afterglow's boot animati
 2026-10-18: an unrotated stereo animation appeared rotated, with correct depth, which only a full
 180° rotation produces.)
 
-Lens centres as the viewer sees the screen: about (852, 865) and (2028, 865), where Meta's splash logo
-appears.
+Lens centres as the viewer sees the screen: **(792, 866) and (2088, 866)**, from Meta's lens model
+(below). Meta's splash logo appears at about (852, 865) and (2028, 865), which afterglow used at first:
+60 px further in on each side, as a logo drawn to look about half a metre away would be.
+
+**The lenses** (from Meta's runtime, `libvrapiimpl.so` in `VrDriver.apk`, the function that sets up
+device type 259, `VRAPI_DEVICE_TYPE_OCULUSQUEST`; read 2026-10-19): Oculus's Catmull-Rom lens model
+(equation 2). A point `d` metres from the lens centre on the panel is seen at tangent angle
+`t = (d / 0.0389) * K(r²)`, `r = |d| / 0.0389`, `K` through 1.0, 1.0374, 1.0810, 1.1330, 1.1970, 1.2754,
+1.3771, 1.5133, 1.7018, 1.9732, 2.3 at `r²` = 0, 0.1 … 1.0. Red is scaled by `1 - 0.004 - 0.007 r²` and
+blue by `1 + 0.006 + 0.02 r²` relative to green. The panel is 0.0594 × 0.066 m (41.25 µm a pixel), the
+lens centre 2.986 mm towards the nose and 2.72 mm down from its centre, the lens separation 63.5 mm,
+and the field of view 52° outward, 42° inward, 53° up and 47° down. At the centre that's 943 pixels a
+unit of tangent (afterglow had guessed 720). The factory's per-headset `decenter_mm` (here up to
+0.34 mm) isn't applied yet.
 
 **The panels are also slightly rolled.** On the development headset, measured with afterglow's
 calibration screen (2026-10-18), each eye's image needs turning **+1.0° (left) and +2.0° (right)**

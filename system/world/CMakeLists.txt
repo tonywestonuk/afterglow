@@ -16,7 +16,7 @@ set(WAMR_BUILD_REF_TYPES 1)   # clang 19+ emits reference types by default
 include(${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
 
-add_executable(world world.c ext.c gles.c paint.c sign.c head.c)
+add_executable(world world.c ext.c gles.c paint.c sign.c head.c lens.c)
 target_include_directories(world PRIVATE ${STB_DIR})
 target_compile_options(world PRIVATE -Wall -Wextra)
 target_link_libraries(world vmlib dl m log)

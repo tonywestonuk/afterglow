@@ -8,6 +8,7 @@ through afterglowd's tools; the extension API is [`sdk/afterglow.h`](sdk/aftergl
 |---|---|
 | `world.c` | Render loop, scene (meshes, shaders, textures, objects, with who changed what), the standard shader, blending, stereo views centred on the lenses and turned by each panel's roll, frames to the panels, control socket |
 | `ext.c` | Extensions in WAMR's fast interpreter: the API as WebAssembly imports, an instruction budget per call, unloading and restoring on failure |
+| `lens.c` | The lenses: Meta's lens model for the Quest 1, a warp mesh per eye (per colour) from the eye buffers to the panels |
 | `head.c` | Head tracking, turning only: the IMU through SyncBoss, fused into the head's orientation, a neck model, prediction |
 | `sign.c` | The road-works sign put beside a placeholder |
 | `paint.c` | Pictures on the CPU: images from files (stb_image), text (stb_truetype, from distance fields so the light font can be made bolder), the sign's face |

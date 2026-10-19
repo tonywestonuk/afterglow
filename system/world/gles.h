@@ -51,18 +51,27 @@
     X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer)                                            \
     X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus)                                              \
     X(PFNGLINVALIDATEFRAMEBUFFERPROC, glInvalidateFramebuffer) X(PFNGLFENCESYNCPROC, glFenceSync)                     \
-    X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) X(PFNGLDELETESYNCPROC, glDeleteSync)
+    X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) X(PFNGLDELETESYNCPROC, glDeleteSync)                        \
+    X(PFNGLGETATTRIBLOCATIONPROC, glGetAttribLocation) X(PFNGLUNIFORM2FPROC, glUniform2f)
 
 #define X(type, name) extern type name;
 EGL_FUNCTIONS(X)
 GL_FUNCTIONS(X)
 #undef X
 
-/* Load the driver and make an OpenGL ES 3 context with an offscreen framebuffer, width x height, which
- * stays bound: 4x multisampled within the GPU's tile memory if it can be, so that only the resolved
- * image is written out. Returns 0, or -1 with the reason logged. */
-int gles_init(int width, int height);
-/* After drawing a frame: depth needn't be kept, so it never leaves the GPU */
+/* Load the driver and make an OpenGL ES 3 context (there's no window: frames go to framebuffer
+ * objects). Returns 0, or -1 with the reason logged. */
+int gles_init(void);
+/* A framebuffer object that draws into a texture, width x height: with depth if asked, and if asked 4x
+ * multisampled within the GPU's tile memory, so that only the resolved image is written out. 0 or -1 */
+int gles_framebuffer(int width, int height, int depth, int multisample, GLuint *fbo, GLuint *texture);
+/* After drawing into such a framebuffer: depth needn't be kept, so it never leaves the GPU */
 void gles_frame_drawn(void);
+
+/* The lenses (lens.c) */
+int lens_init(void);
+void lens_frustum(int eye, float tangents[4]);
+float lens_pixels_per_tan(void);
+void lens_draw(GLuint eye_buffers);
 
 #endif

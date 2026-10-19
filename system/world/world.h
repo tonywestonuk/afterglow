@@ -32,6 +32,7 @@ int world_mesh_create(int ext, const float *vertices, int vertex_count, const ui
                       int primitive);
 int world_shader_create(int ext, const char *vertex_glsl, const char *fragment_glsl);
 int world_shader_standard(void);
+unsigned world_shader_program(int shader);   /* its OpenGL program */
 int world_texture_create(int ext, const uint8_t *rgba, int width, int height);
 int world_texture_load(int ext, const char *name);
 int world_texture_text(int ext, const char *text, int pixel_height, uint32_t ink);

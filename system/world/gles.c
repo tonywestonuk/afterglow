@@ -41,43 +41,49 @@ static int load_driver(void)
 }
 
 /*
- * The frame is drawn into a texture through a framebuffer object. With EXT_multisampled_render_to_texture
+ * Frames are drawn into textures through framebuffer objects. With EXT_multisampled_render_to_texture
  * the 4x multisampling lives only in the GPU's tile memory and is resolved as each tile is written out,
- * so a frame costs memory traffic for one 18 MB image rather than four samples a pixel plus a separate
- * resolve when it's read back.
+ * so a frame costs memory traffic for one image rather than four samples a pixel plus a separate resolve.
  */
-static int make_framebuffer(int width, int height, int *samples)
+int gles_framebuffer(int width, int height, int depth, int multisample, GLuint *fbo, GLuint *colour)
 {
     PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEEXTPROC texture_ms =
         (PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEEXTPROC)eglGetProcAddress("glFramebufferTexture2DMultisampleEXT");
     PFNGLRENDERBUFFERSTORAGEMULTISAMPLEEXTPROC depth_ms =
         (PFNGLRENDERBUFFERSTORAGEMULTISAMPLEEXTPROC)eglGetProcAddress("glRenderbufferStorageMultisampleEXT");
     const char *extensions = (const char *)glGetString(GL_EXTENSIONS);
-    *samples = texture_ms && depth_ms && strstr(extensions, "GL_EXT_multisampled_render_to_texture") ? 4 : 0;
-    GLuint fbo, colour, depth;
-    glGenTextures(1, &colour);
-    glBindTexture(GL_TEXTURE_2D, colour);
+    int samples = multisample && texture_ms && depth_ms && strstr(extensions, "GL_EXT_multisampled_render_to_texture") ? 4 : 0;
+    glGenTextures(1, colour);
+    glBindTexture(GL_TEXTURE_2D, *colour);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
-    glGenRenderbuffers(1, &depth);
-    glBindRenderbuffer(GL_RENDERBUFFER, depth);
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    if (*samples) {
-        depth_ms(GL_RENDERBUFFER, *samples, GL_DEPTH_COMPONENT24, width, height);
-        texture_ms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colour, 0, *samples);
-    } else {
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colour, 0);
+    glGenFramebuffers(1, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
+    if (samples)
+        texture_ms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *colour, 0, samples);
+    else
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *colour, 0);
+    if (depth) {
+        GLuint rb;
+        glGenRenderbuffers(1, &rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, rb);
+        if (samples)
+            depth_ms(GL_RENDERBUFFER, samples, GL_DEPTH_COMPONENT24, width, height);
+        else
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rb);
     }
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     if (status != GL_FRAMEBUFFER_COMPLETE) {
-        wlog("the offscreen framebuffer is incomplete (0x%x)", status);
+        wlog("a %dx%d framebuffer is incomplete (0x%x)", width, height, status);
         return -1;
     }
+    if (multisample)
+        wlog("eye buffers %dx%d, %s", width, height, samples ? "4x multisampled in tile memory" : "not multisampled");
     return 0;
 }
 
@@ -87,7 +93,7 @@ void gles_frame_drawn(void)
     glInvalidateFramebuffer(GL_FRAMEBUFFER, 1, &depth);
 }
 
-int gles_init(int width, int height)
+int gles_init(void)
 {
     if (load_driver() != 0)
         return -1;
@@ -113,10 +119,6 @@ int gles_init(int width, int height)
         wlog("EGL surface or context failed (0x%x)", eglGetError());
         return -1;
     }
-    int samples;
-    if (make_framebuffer(width, height, &samples) != 0)
-        return -1;
-    wlog("GPU: %s, %s (%s)", glGetString(GL_RENDERER), glGetString(GL_VERSION),
-         samples ? "4x multisampling in tile memory" : "no multisampling");
+    wlog("GPU: %s, %s", glGetString(GL_RENDERER), glGetString(GL_VERSION));
     return 0;
 }

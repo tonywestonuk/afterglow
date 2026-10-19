@@ -58,7 +58,6 @@ How:
 | | |
 |---|---|
 | **Getting frames onto the panels** | The probe copies a finished frame to the framebuffer with `glReadPixels`: 32 ms, far too slow for 72 Hz (13.9 ms per frame). The GPU needs to render straight into buffers the display shows (the display driver's overlay with ION buffers, or the framebuffer's own memory imported as an EGLImage) |
-| **Lens centring and distortion** | Each eye's projection must be centred on its lens (852,865 and 2028,865 on screen), and the image pre-warped for the lens; the roll correction (already per pixel on the CPU) moves into the same GPU pass |
 | **Head tracking: position** | Turning is tracked (below); moving about needs the cameras (6DoF, open SLAM) |
 | **Voice** | The microphones (the audio DSP already runs) and speech-to-text, on the Mac at first |
 | **Instancing** | Many copies of one mesh (grass blades, puffs of smoke, crowds) in one draw, each with its own transform and colour |
@@ -88,6 +87,18 @@ with `head_pose()`.
 
 Not yet: Meta's factory calibration of the IMU, the magnetometer to stop the heading drifting, and
 lower latency (frames straight to the panels; reprojecting each refresh with the latest head pose).
+
+## The lenses (2026-10-19)
+
+Straight lines bent towards the sides, as through a fish-eye: the lenses magnify more away from their
+centres, and nothing undid it. Now each eye is drawn undistorted into an eye buffer covering Meta's
+field of view (52° out, 42° in, 53° up, 47° down), and `lens.c` warps the eye buffers onto the panels
+with a 48 x 54 mesh per eye whose texture coordinates come from Meta's own lens model for the Quest 1
+([docs/hardware.md](hardware.md#display-framebuffer)), separately for red, green and blue so colour
+fringes cancel. The warp also turns the picture for the panels, which were drawn mirrored before.
+The lens centres moved to Meta's (60 px further out than the splash logo suggested), so faraway
+things no longer make the eyes converge. The warp is an extra pass: the village went from 35-40 to
+about 29 frames drawn a second, still shown at every refresh.
 
 ## Frame rate (2026-10-19)
 

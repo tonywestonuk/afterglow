@@ -47,8 +47,6 @@
 #define FONT_PATH "/afterglow/font.ttf"
 
 /* Optics, in screen pixels as the wearer sees them (docs/hardware.md). No lens distortion correction yet. */
-static const float lens_x[2] = { 852, 2028 }, lens_y = 865;
-#define FOCAL_PX 720.0f   /* pixels per unit of tan(angle) at the lens centre: about 90° across an eye */
 #define IPD 0.063f
 /* Frames are drawn for the head as it will be when they're first seen (a frame's drawing time, then the
  * refresh: frame_show reprojects later refreshes), at most this far ahead */
@@ -166,6 +164,11 @@ static int fail(const char *fmt, ...)
 const char *world_error(void)
 {
     return error;
+}
+
+unsigned world_shader_program(int id)
+{
+    return id >= 1 && id <= MAX_SHADERS && shaders[id - 1].used ? shaders[id - 1].program : 0;
 }
 
 static struct mesh *mesh_get(int id)
@@ -759,14 +762,11 @@ static void mat_mul(float out[16], const float a[16], const float b[16])
  */
 static void eye_view(int eye, float view_projection[16], float position[3])
 {
-    float n = 0.05f, f = 500.0f;
-    float cx = lens_x[eye] - eye * EYE_W, cy = H - lens_y;   /* OpenGL counts rows from the bottom */
-    float l = -cx / FOCAL_PX * n, r = (EYE_W - cx) / FOCAL_PX * n;
-    float b = -cy / FOCAL_PX * n, t = (H - cy) / FOCAL_PX * n;
-    /* Mirrored left to right (x negated): the panels show the framebuffer turned 180°, and OpenGL's rows
-     * already run bottom-up, so a mirrored image copies to the framebuffer row for row, unchanged */
-    float projection[16] = { -2 * n / (r - l), 0, 0, 0, 0, 2 * n / (t - b), 0, 0,
-                             -(r + l) / (r - l), (t + b) / (t - b), -(f + n) / (f - n), -1, 0, 0, -2 * f * n / (f - n), 0 };
+    float n = 0.05f, f = 500.0f, tangents[4];
+    lens_frustum(eye, tangents);   /* the eye buffer covers the lens's field of view; lens.c warps it */
+    float l = tangents[0] * n, r = tangents[1] * n, b = tangents[2] * n, t = tangents[3] * n;
+    float projection[16] = { 2 * n / (r - l), 0, 0, 0, 0, 2 * n / (t - b), 0, 0,
+                             (r + l) / (r - l), (t + b) / (t - b), -(f + n) / (f - n), -1, 0, 0, -2 * f * n / (f - n), 0 };
     const float *h = head_rotation;   /* columns: the head's right, up and back, in the world */
     for (int k = 0; k < 3; k++)
         position[k] = head_centre[k] + (eye ? 1 : -1) * IPD / 2 * h[k];
@@ -850,7 +850,7 @@ static void draw_eye(int eye, float time)
     float vp[16], eye_position[3], distance[MAX_OBJECTS];
     int order[MAX_OBJECTS], later = 0;
     eye_view(eye, vp, eye_position);
-    glViewport((1 - eye) * EYE_W, 0, EYE_W, H);   /* mirrored, so each eye's half swaps too */
+    glViewport(eye * EYE_W, 0, EYE_W, H);   /* the eye buffers, side by side */
     for (int i = 0; i < MAX_OBJECTS; i++) {
         struct object *o = &objects[i];
         struct mesh *m = o->used && o->visible ? mesh_get(o->mesh) : NULL;
@@ -999,8 +999,8 @@ static void frame_copy(const float now_rotation[9])
         f[k] = d[k * 3] * ahead[0] + d[k * 3 + 1] * ahead[1] + d[k * 3 + 2] * ahead[2];
     int right = 0, up = 0;   /* pixels, as the wearer sees it */
     if (f[2] < -0.5f) {
-        right = (int)lrintf(FOCAL_PX * f[0] / -f[2]);
-        up = (int)lrintf(FOCAL_PX * f[1] / -f[2]);
+        right = (int)lrintf(lens_pixels_per_tan() * f[0] / -f[2]);
+        up = (int)lrintf(lens_pixels_per_tan() * f[1] / -f[2]);
         right = right > EYE_W / 2 ? EYE_W / 2 : right < -EYE_W / 2 ? -EYE_W / 2 : right;
         up = up > H / 2 ? H / 2 : up < -H / 2 ? -H / 2 : up;
     }
@@ -1234,7 +1234,10 @@ int main(void)
     read_roll();
     if (getenv("AFTERGLOW_WORLD_DIR"))
         snprintf(texture_dir, sizeof(texture_dir), "%s/textures", getenv("AFTERGLOW_WORLD_DIR"));
-    if (gles_init(W, H) != 0 || display_open() != 0 || make_floor() != 0 || make_standard_shader() != 0 ||
+    GLuint eye_fbo, eye_buffers, panel_fbo, panel_image;
+    if (gles_init() != 0 || gles_framebuffer(W, H, 0, 0, &panel_fbo, &panel_image) != 0 ||
+        gles_framebuffer(2 * EYE_W, H, 1, 1, &eye_fbo, &eye_buffers) != 0 || lens_init() != 0 ||
+        display_open() != 0 || make_floor() != 0 || make_standard_shader() != 0 ||
         ext_init() != 0)
         return 1;
     static const uint8_t white_pixel[4] = { 255, 255, 255, 255 };
@@ -1284,11 +1287,15 @@ int main(void)
         interval += (fmin(t - last, 0.2) - interval) * 0.1;
         last = t;
         head_pose(fmin(interval + DISPLAY_AHEAD, PREDICT_MAX), head_rotation, head_centre);
+        glBindFramebuffer(GL_FRAMEBUFFER, eye_fbo);
         glClearColor(background[0], background[1], background[2], 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         for (int eye = 0; eye < 2; eye++)
             draw_eye(eye, (float)t);
         gles_frame_drawn();
+        glBindFramebuffer(GL_FRAMEBUFFER, panel_fbo);   /* warped for the lenses onto what the panels show */
+        glViewport(0, 0, W, H);
+        lens_draw(eye_buffers);
         frame_submit();
         drawing_time += world_time() - t;
         if (world_time() - report >= 10) {

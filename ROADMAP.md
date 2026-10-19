@@ -74,7 +74,8 @@ An app is a running world that code is added to while it runs: "make the floor g
 grass extension is compiled and linked in without the world stopping.
 
 - [x] 3D on the GPU: Qualcomm's OpenGL ES 3.2 driver runs under afterglow (stereo wireframe floor, 4 ms/frame)
-- [ ] Frames straight to the panels (today a 32 ms copy), centred on the lenses, distortion-corrected
+- [x] Centred on the lenses and corrected for their distortion and colour fringes (Meta's lens model); reprojected at every refresh
+- [ ] Frames straight to the panels (today a readback and a 3-5 ms copy each refresh)
 - [x] The world: render loop, scene (meshes, shaders, objects), API in [`sdk/afterglow.h`](system/world/sdk/afterglow.h)
 - [x] Extensions as WebAssembly (WAMR), with `on_load()`/`on_frame()`/`on_unload()`, swapped while the
       world runs; a crashing or looping extension is stopped and undone, not the world
