@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ func textureTools() []tool {
 				"name":     prop("string", "Texture name: lower case, digits, - or _ (e.g. grass)"),
 				"prompt":   prop("string", "What to paint"),
 				"seamless": prop("boolean", "Make it repeat without visible seams (for floors, walls, terrain)"),
-				"size":     prop("integer", "Pixels each way: 256 to 1024, a multiple of 64 (default 512)"),
+				"size":     prop("integer", "Pixels each way: 256 to 1024, a multiple of 64 (default: the generator's own setting, which suits its model)"),
 				"server": prop("string", "The generator's address, e.g. http://192.168.1.20:7860 (remembered; it "+
 					"must accept connections from the network, not just from its own computer)"),
 			}),
@@ -117,10 +118,7 @@ func generateTexture(args json.RawMessage) ([]any, error) {
 	if !extNameRule.MatchString(a.Name) {
 		return nil, errors.New("name: lower case letters, digits, - or _, starting with a letter, up to 32")
 	}
-	if a.Size == 0 {
-		a.Size = 512
-	}
-	if a.Size < 256 || a.Size > 1024 || a.Size%64 != 0 {
+	if a.Size != 0 && (a.Size < 256 || a.Size > 1024 || a.Size%64 != 0) {
 		return nil, errors.New("size: 256 to 1024, a multiple of 64")
 	}
 	if a.Server != "" {
@@ -136,28 +134,47 @@ func generateTexture(args json.RawMessage) ([]any, error) {
 			"its HTTP API server on and reachable from the network); it's remembered")
 	}
 
-	request, _ := json.Marshal(map[string]any{
+	request := map[string]any{
 		"prompt":          a.Prompt,
 		"negative_prompt": "text, words, watermark, signature, logo, frame, border, vignette",
-		"width":           a.Size,
-		"height":          a.Size,
 		"tiling":          a.Seamless,
 		"batch_size":      1,
 		"n_iter":          1,
-	})
+	}
+	if a.Size != 0 {
+		request["width"], request["height"] = a.Size, a.Size
+	}
 	start := time.Now()
-	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Post(a.Server+"/sdapi/v1/txt2img", "application/json",
-		bytes.NewReader(request))
-	if err != nil {
-		return nil, fmt.Errorf("the image generator at %s: %w (is it running, with its API on and reachable "+
-			"from the network?)", a.Server, err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
+	var body []byte
+	var dropped []string
+	for {
+		encoded, _ := json.Marshal(request)
+		resp, err := (&http.Client{Timeout: 10 * time.Minute}).Post(a.Server+"/sdapi/v1/txt2img", "application/json",
+			bytes.NewReader(encoded))
+		if err != nil {
+			return nil, fmt.Errorf("the image generator at %s: %w (is it running, with its API on and reachable "+
+				"from the network?)", a.Server, err)
+		}
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 256<<20))
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
+		// Some generators (Draw Things) refuse fields they don't know: ask again without them
+		if unknown := unrecognizedKeys(body); len(dropped) == 0 && len(unknown) > 0 {
+			for _, key := range unknown {
+				if _, ok := request[key]; ok && key != "prompt" {
+					delete(request, key)
+					dropped = append(dropped, key)
+				}
+			}
+			if len(dropped) > 0 {
+				continue
+			}
+		}
 		return nil, fmt.Errorf("the image generator at %s said %s: %s", a.Server, resp.Status,
 			strings.ToValidUTF8(string(body[:min(len(body), 500)]), "?"))
 	}
@@ -175,7 +192,35 @@ func generateTexture(args json.RawMessage) ([]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the image generator's image: %w", err)
 	}
-	return saveTexture(a.Name, data, a.Seamless, fmt.Sprintf("generated in %.0f s", time.Since(start).Seconds()))
+	origin := fmt.Sprintf("generated in %.0f s", time.Since(start).Seconds())
+	if len(dropped) > 0 {
+		origin += fmt.Sprintf(" (the generator doesn't take %s)", strings.Join(dropped, ", "))
+	}
+	return saveTexture(a.Name, data, a.Seamless, origin)
+}
+
+var unrecognized = regexp.MustCompile(`[Uu]nrecognized keys: \[([^\]]*)\]`)
+
+// unrecognizedKeys reads an error like Draw Things': {"detail":"Unrecognized keys: [\"tiling\"]"}.
+func unrecognizedKeys(body []byte) []string {
+	var reply struct {
+		Detail string `json:"detail"`
+	}
+	text := string(body)
+	if json.Unmarshal(body, &reply) == nil && reply.Detail != "" {
+		text = reply.Detail
+	}
+	m := unrecognized.FindStringSubmatch(text)
+	if m == nil {
+		return nil
+	}
+	var keys []string
+	for _, key := range strings.Split(m[1], ",") {
+		if key = strings.Trim(strings.TrimSpace(key), `"'`); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // saveTexture checks an image, shrinks it if it's huge, makes it seamless if asked, and keeps it as

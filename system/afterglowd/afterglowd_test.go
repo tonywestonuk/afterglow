@@ -273,7 +273,13 @@ func TestTextures(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		asked = nil
 		json.NewDecoder(r.Body).Decode(&asked)
+		if _, ok := asked["tiling"]; ok && strings.Contains(asked["prompt"].(string), "strict") { // as Draw Things does
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"HTTPException","errors":"","detail":"Unrecognized keys: [\"tiling\"]","body":""}`))
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]any{"images": []string{base64.StdEncoding.EncodeToString(picture.Bytes())}})
 	}))
 	defer generator.Close()
@@ -288,8 +294,15 @@ func TestTextures(t *testing.T) {
 		"server": generator.URL}); isErr || !strings.Contains(out, "edges blended") {
 		t.Errorf("generate_texture: %s", out)
 	}
-	if asked["prompt"] != "grass" || asked["tiling"] != true || asked["width"] != 512.0 {
+	if asked["prompt"] != "grass" || asked["tiling"] != true || asked["width"] != nil {
 		t.Errorf("the generator was asked for %v", asked)
+	}
+	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "strict", "prompt": "strict grass", "seamless": true,
+		"size": 768}); isErr || !strings.Contains(out, "doesn't take tiling") || !strings.Contains(out, "edges blended") {
+		t.Errorf("generate_texture from a strict generator: %s", out)
+	}
+	if asked["width"] != 768.0 || asked["tiling"] != nil {
+		t.Errorf("the strict generator was last asked for %v", asked)
 	}
 	if out, isErr := call(t, s, "generate_texture", map[string]any{"name": "moss", "prompt": "moss"}); isErr {
 		t.Errorf("generate_texture with the server remembered: %s", out)
@@ -301,7 +314,7 @@ func TestTextures(t *testing.T) {
 	if out, isErr := call(t, s, "fetch_texture", map[string]any{"name": "nope", "url": "file:///etc/passwd"}); !isErr {
 		t.Errorf("fetch_texture of a file: URL accepted: %s", out)
 	}
-	if got := listTextures(); got != "textures: bands (600x300), lawn (600x300), moss (600x300)\n" {
+	if got := listTextures(); got != "textures: bands (600x300), lawn (600x300), moss (600x300), strict (600x300)\n" {
 		t.Errorf("listTextures: %q", got)
 	}
 }

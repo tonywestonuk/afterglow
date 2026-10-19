@@ -109,4 +109,8 @@ The image goes from the generator or the web straight to the headset; Claude onl
 preview (2x2 for seamless ones, so a seam would show). Images that should repeat but don't are
 blended at their edges. Text becomes a texture too (`texture_text`, `label()`), in afterglow's font.
 Proven: fetching (Poly Haven over https) and the generator round trip against a stand-in speaking the
-AUTOMATIC1111 API; not yet against a real Stable Diffusion server.
+AUTOMATIC1111 API. Draw Things (2026-10-19, on the Mac): its HTTP API server answers
+`/sdapi/v1/txt2img` with AUTOMATIC1111's reply, but refuses fields it doesn't know, `tiling` among
+them, so afterglowd asks again without them (seamless then comes from the edge blending); it
+listens only on 127.0.0.1 until set otherwise. A 1024x1024 texture with PixArt Sigma at 20 steps
+took 120 s on the Mac: placeholders matter. DiffusionBee and Mochi Diffusion have no API.
