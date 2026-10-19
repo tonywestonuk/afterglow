@@ -52,6 +52,7 @@ never put a device serial number in the repo.
   `/storage/toolchain` (install: `system/world/README.md`). The NDK lives in `tools/android-ndk-dl/`.
   Placeholder first (`placeholder: true`) when the real thing takes long to write; `edits` for changes.
   To try a new world binary without rebooting: `stop_world`, replace `/afterglow/world` (RAM), start again.
+  A new afterglowd: replace `/bin/afterglowd` (RAM) and kill it; bringup's loop restarts it in a second.
 - Magisk's root prompt can't display on a Quest with a custom launcher. Use the root overlay in
   `tools/root-overlay/` ([procedure](docs/rooting-and-backup.md)).
 - macOS has no `timeout`, and Bash is 3.2: keep scripts portable.

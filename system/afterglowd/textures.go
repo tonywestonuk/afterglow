@@ -238,6 +238,9 @@ func saveTexture(name string, data []byte, seamless bool, origin string) ([]any,
 		notes = append(notes, fmt.Sprintf("shrunk from %dx%d", w, h))
 	}
 	if seamless {
+		if evenLight(img) {
+			notes = append(notes, "light evened out")
+		}
 		if blendEdges(img) {
 			notes = append(notes, "edges blended so it repeats without seams")
 		} else {
@@ -320,6 +323,69 @@ func shrink(src *image.NRGBA, w, h int) *image.NRGBA {
 		}
 	}
 	return dst
+}
+
+// evenLight takes out slow changes of brightness across an image (a generator's vignette, light from
+// one side), which would show as a grid of light and dark patches once it's tiled: each pixel is
+// scaled by the image's average brightness over a heavy blur of its neighbourhood (wrapping round the
+// edges, as tiling will), a few times over. It reports whether there was anything to take out.
+func evenLight(img *image.NRGBA) bool {
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	changed := false
+	for pass := 0; pass < 3; pass++ {
+		light := make([]float64, w*h)
+		mean := 0.0
+		for i := range light {
+			p := img.Pix[i*4:]
+			light[i] = 0.299*float64(p[0]) + 0.587*float64(p[1]) + 0.114*float64(p[2]) + 1
+			mean += light[i]
+		}
+		mean /= float64(w * h)
+		r := max(w, h) / 12
+		blur := boxBlur(boxBlur(light, w, h, r), w, h, r)
+		lo, hi := blur[0], blur[0]
+		for _, b := range blur {
+			lo, hi = min(lo, b), max(hi, b)
+		}
+		if hi < lo*1.08 { // even enough
+			break
+		}
+		changed = true
+		for i, b := range blur {
+			k, p := mean/b, img.Pix[i*4:]
+			for c := 0; c < 3; c++ {
+				p[c] = uint8(min(255, float64(p[c])*k+0.5))
+			}
+		}
+	}
+	return changed
+}
+
+// boxBlur averages each value with those up to r away across and down, wrapping round the edges.
+func boxBlur(in []float64, w, h, r int) []float64 {
+	r = min(r, w/2-1, h/2-1)
+	tmp, out := make([]float64, w*h), make([]float64, w*h)
+	for y := 0; y < h; y++ {
+		sum := 0.0
+		for d := -r; d <= r; d++ {
+			sum += in[y*w+(d+w)%w]
+		}
+		for x := 0; x < w; x++ {
+			tmp[y*w+x] = sum / float64(2*r+1)
+			sum += in[y*w+(x+r+1)%w] - in[y*w+(x-r+w)%w]
+		}
+	}
+	for x := 0; x < w; x++ {
+		sum := 0.0
+		for d := -r; d <= r; d++ {
+			sum += tmp[((d+h)%h)*w+x]
+		}
+		for y := 0; y < h; y++ {
+			out[y*w+x] = sum / float64(2*r+1)
+			sum += tmp[((y+r+1)%h)*w+x] - tmp[((y-r+h)%h)*w+x]
+		}
+	}
+	return out
 }
 
 // blendEdges makes an image repeat without seams, if it doesn't already: across each way in turn, its

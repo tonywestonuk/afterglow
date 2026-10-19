@@ -258,6 +258,28 @@ func TestSeamless(t *testing.T) {
 	}
 }
 
+func TestEvenLight(t *testing.T) {
+	// Grey noise, bright in the middle and dark at the edges
+	img := image.NewNRGBA(image.Rect(0, 0, 128, 128))
+	for y := 0; y < 128; y++ {
+		for x := 0; x < 128; x++ {
+			d := math.Hypot(float64(x-64), float64(y-64)) / 90 // a vignette, as generators make
+			v := uint8(160 - 80*d*d + float64((x*7+y*13)%17))
+			img.Set(x, y, color.NRGBA{v, v, v, 255})
+		}
+	}
+	if !evenLight(img) {
+		t.Fatal("evenLight saw nothing to even out")
+	}
+	centre, corner := img.NRGBAAt(64, 64).R, img.NRGBAAt(2, 2).R
+	if math.Abs(float64(centre)-float64(corner)) > 25 {
+		t.Errorf("still uneven: centre %d, corner %d", centre, corner)
+	}
+	if evenLight(img) {
+		t.Error("evenLight changed an evenly lit image")
+	}
+}
+
 func TestTextures(t *testing.T) {
 	dir := t.TempDir()
 	defer func(f func() string, g string) { worldDir, imageGeneratorFile = f, g }(worldDir, imageGeneratorFile)
