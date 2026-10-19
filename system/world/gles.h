@@ -52,7 +52,8 @@
     X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus)                                              \
     X(PFNGLINVALIDATEFRAMEBUFFERPROC, glInvalidateFramebuffer) X(PFNGLFENCESYNCPROC, glFenceSync)                     \
     X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) X(PFNGLDELETESYNCPROC, glDeleteSync)                        \
-    X(PFNGLGETATTRIBLOCATIONPROC, glGetAttribLocation) X(PFNGLUNIFORM2FPROC, glUniform2f)
+    X(PFNGLGETATTRIBLOCATIONPROC, glGetAttribLocation) X(PFNGLUNIFORM2FPROC, glUniform2f)                   \
+    X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer) X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers)
 
 #define X(type, name) extern type name;
 EGL_FUNCTIONS(X)
@@ -67,6 +68,10 @@ int gles_init(void);
 int gles_framebuffer(int width, int height, int depth, int multisample, GLuint *fbo, GLuint *texture);
 /* After drawing into such a framebuffer: depth needn't be kept, so it never leaves the GPU */
 void gles_frame_drawn(void);
+
+/* Capture for afterglowd's video stream (capture.c) */
+void capture_command(const char *args, char *reply, size_t size);
+void capture_frame(GLuint eye_buffers, GLuint panel_fbo);
 
 /* The lenses (lens.c) */
 int lens_init(void);

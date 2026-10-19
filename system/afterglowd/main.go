@@ -45,11 +45,13 @@ func main() {
 	if *name != "" {
 		go advertise(*name)
 	}
-	s := &server{tokenFile: *tokenFile, tools: append(append(tools(), worldTools()...), textureTools()...)}
+	s := &server{tokenFile: *tokenFile, tools: append(append(append(tools(), worldTools()...), textureTools()...),
+		captureTools()...)}
 	go s.showStatus("/run/afterglow/status/30-claude")
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", s)
 	mux.HandleFunc("/status", s.serveStatus)
+	mux.HandleFunc("/capture/", serveCapture) // a private URL per capture: no token
 	srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	klog("version %s serving MCP on %s/mcp", version, *listen)
 	if err := srv.ListenAndServe(); err != nil {

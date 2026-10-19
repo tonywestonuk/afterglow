@@ -11,6 +11,8 @@
  *   list
  *   recentre          make the way the wearer faces now "ahead" (-z)
  *   status TEXT       what Claude is doing, shown on a panel in front of the wearer (sign.c)
+ *   capture start eyes|panels left|right|both WIDTH HEIGHT, capture stop
+ *                     frames for afterglowd's video stream, scaled down, in /tmp/afterglow-capture (capture.c)
  *   snapshot PATH eyes|panels
  *                     write the newest frame to PATH, raw RGBA 2880x1600 rows top first, as the wearer
  *                     sees it: "eyes" undistorted (the eye buffers), "panels" warped for the lenses
@@ -1404,7 +1406,10 @@ static void control_poll(int listener)
     }
     line[len] = '\0';
     line[strcspn(line, "\r\n")] = '\0';
-    if (strncmp(line, "status ", 7) == 0) {   /* the rest of the line is the text */
+    if (strncmp(line, "capture ", 8) == 0) {
+        capture_command(line + 8, reply, sizeof(reply));
+        line[0] = '\0';
+    } else if (strncmp(line, "status ", 7) == 0) {   /* the rest of the line is the text */
         status_set(line + 7);
         snprintf(reply, sizeof(reply), "shown\n");
         line[0] = '\0';
@@ -1594,6 +1599,7 @@ int main(void)
         glViewport(0, 0, W, H);
         lens_draw(eye_buffers);
         frame_submit();
+        capture_frame(eye_buffers, panel_fbo);
         drawing_time += world_time() - t;
         if (world_time() - report >= 10) {
             int gpu_busy = -1;

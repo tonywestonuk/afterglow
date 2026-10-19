@@ -27,7 +27,7 @@ func newTestServer(t *testing.T) *server {
 	if err := os.WriteFile(path, []byte(testToken+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return &server{tokenFile: path, tools: append(append(tools(), worldTools()...), textureTools()...)}
+	return &server{tokenFile: path, tools: append(append(append(tools(), worldTools()...), textureTools()...), captureTools()...)}
 }
 
 // post sends one JSON-RPC message and returns the HTTP status and the decoded response.
@@ -106,7 +106,8 @@ func TestHandshake(t *testing.T) {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
 	if got := strings.Join(names, " "); got != "run read_file write_file list_dir status logs screenshot "+
-		"load_extension unload_extension list_extensions start_world recentre stop_world generate_texture fetch_texture" {
+		"load_extension unload_extension list_extensions start_world recentre stop_world generate_texture fetch_texture " +
+		"start_capture end_capture" {
 		t.Errorf("tools: %s", got)
 	}
 	_, resp = post(t, s, `{"jsonrpc":"2.0","id":4,"method":"no/such"}`, nil)
@@ -411,5 +412,22 @@ func TestStatus(t *testing.T) {
 	}
 	if code := post(`not json`, true); code != http.StatusBadRequest {
 		t.Errorf("bad body: HTTP %d", code)
+	}
+}
+
+func TestCaptureURL(t *testing.T) {
+	capture.Lock()
+	capture.key, capture.fps = "abc123", 10
+	capture.Unlock()
+	defer func() { capture.Lock(); capture.key = ""; capture.Unlock() }()
+	for _, path := range []string{"/capture/wrong.mjpg", "/capture/.mjpg", "/capture/abc12.mjpg"} {
+		rec := httptest.NewRecorder()
+		serveCapture(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: HTTP %d, want 404", path, rec.Code)
+		}
+	}
+	if out, isErr := call(t, newTestServer(t), "start_capture", map[string]any{"fps": 99}); !isErr {
+		t.Errorf("start_capture at 99 fps accepted: %s", out)
 	}
 }

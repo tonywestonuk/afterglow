@@ -120,6 +120,19 @@ faster than its 18 MB can be read, so reading the framebuffer gave bands of diff
 The default view is each eye undistorted (the eye buffers), the easiest to judge a scene by;
 `panels` is the frame warped for the lenses, as it goes to the displays.
 
+## Video of what the wearer sees (2026-10-19)
+
+`start_capture` (afterglowd) has the world copy each new frame, scaled down on the GPU (a blit, then a
+readback that doesn't wait), into a shared file with two slots and a sequence number
+(`/tmp/afterglow-capture`); afterglowd encodes the newest as JPEG and streams Motion JPEG over HTTP at a
+private URL (a random key that dies with `end_capture`, so the pairing token never goes in a URL).
+VLC plays it (`/Applications/VLC.app/Contents/MacOS/VLC --network-caching=300 URL`); ffmpeg records it.
+Default: the left eye, undistorted, 720x800 at 25 fps (measured: about 23, 60 KB a frame); "both"
+eyes, and "panels" (as the displays show it), on request. The eye buffers are multisampled in tile
+memory, which a scaling blit can't read, so capture reads their resolved texture. While it runs it
+costs the scene a few frames a second (the village-like space dock: about 29 drawn a second, 19-23
+while streaming). No sound yet, and the hardware video encoder (Venus) isn't brought up.
+
 ## Changing one thing without restarting the rest (2026-10-19)
 
 A village green with a dog, a cat, ducks and squirrels: every change to one animal restarted them all,

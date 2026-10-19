@@ -57,6 +57,9 @@ afterglow's own userspace (BusyBox, no Android). You are root on it.
 - Keep state: put an extension's state in one struct and call keep("name", &state, sizeof state) once
   in on_load(). A new version then carries on where the old one was (the dog where it had walked to)
   instead of starting again, and so does the whole scene after a world restart.
+- To show the person (or record) what the wearer sees: start_capture gives a URL; open it on the
+  computer in VLC (/Applications/VLC.app/Contents/MacOS/VLC --network-caching=300 URL &), or record it
+  with ffmpeg. end_capture when done.
 - Textures: generate_texture (an image generator on the network paints one from a description) or
   fetch_texture (any image URL, e.g. CC0 textures from Poly Haven or ambientCG); then
   texture_load("name") in an extension. texture_create takes pixels an extension makes itself.
