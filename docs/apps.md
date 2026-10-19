@@ -133,6 +133,12 @@ memory, which a scaling blit can't read, so capture reads their resolved texture
 costs the scene a few frames a second (the village-like space dock: about 29 drawn a second, 19-23
 while streaming). No sound yet, and the hardware video encoder (Venus) isn't brought up.
 
+Zoom: each eye sees about 94° across, and more outwards than in, so the whole eye buffer looks like a
+fish-eye video. `zoom` crops each eye to 1/zoom of its field, centred on straight ahead (from the
+lens frustum; for `panels`, on the lens centre): 1.6, the default, is about 60°, like a camera.
+Calling `start_capture` again with only a new zoom changes it live (the world's `capture zoom Z`), so
+the URL and the player carry on.
+
 ## Changing one thing without restarting the rest (2026-10-19)
 
 A village green with a dog, a cat, ducks and squirrels: every change to one animal restarted them all,

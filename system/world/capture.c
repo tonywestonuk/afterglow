@@ -4,10 +4,13 @@
  * on as Motion JPEG. The file is a header and two frame slots, written in turn: the header's sequence
  * says which slot is newest, and changes only once a slot is whole.
  *   "eyes" is the eye buffers, undistorted; "panels" the frame warped for the lenses. EYE is left, right
- *   or both; rows are top first, as the wearer sees it.
+ *   or both; rows are top first, as the wearer sees it. ZOOM crops each eye to 1/ZOOM of its field
+ *   around straight ahead (each eye sees more outwards than in, about 94° across in all), so a video
+ *   looks like a normal camera's; "capture zoom Z" changes it while capturing.
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -29,6 +32,7 @@ struct capture_header {
 
 static struct {
     int on, panels, eye, width, height;   /* eye: 0 left, 1 right, 2 both */
+    float zoom;
     GLuint fbo, texture, pbo;
     GLsync done;
     int pending;
@@ -56,20 +60,32 @@ void capture_command(const char *args, char *reply, size_t size)
 {
     char what[16] = "", view[16] = "", eye[16] = "";
     int width = 0, height = 0;
-    sscanf(args, "%15s %15s %15s %d %d", what, view, eye, &width, &height);
+    float zoom = 1;
+    if (sscanf(args, "zoom %f", &zoom) == 1) {
+        if (!cap.on || zoom < 1 || zoom > 4) {
+            snprintf(reply, size, "error: not capturing, or a zoom outside 1 to 4\n");
+            return;
+        }
+        cap.zoom = zoom;
+        snprintf(reply, size, "zoom %.2f\n", zoom);
+        return;
+    }
+    sscanf(args, "%15s %15s %15s %d %d %f", what, view, eye, &width, &height, &zoom);
     if (strcmp(what, "stop") == 0) {
         stop();
         snprintf(reply, size, "capture stopped\n");
         return;
     }
-    if (strcmp(what, "start") != 0 || width < 64 || height < 64 || width > FULL_W || height > FULL_H) {
-        snprintf(reply, size, "error: capture start eyes|panels left|right|both WIDTH HEIGHT, or capture stop\n");
+    if (strcmp(what, "start") != 0 || width < 64 || height < 64 || width > FULL_W || height > FULL_H || zoom < 1 ||
+        zoom > 4) {
+        snprintf(reply, size, "error: capture start eyes|panels left|right|both WIDTH HEIGHT [ZOOM], capture zoom Z, or "
+                              "capture stop\n");
         return;
     }
     stop();
     cap.panels = strcmp(view, "panels") == 0;
     cap.eye = strcmp(eye, "right") == 0 ? 1 : strcmp(eye, "both") == 0 ? 2 : 0;
-    cap.width = width, cap.height = height;
+    cap.width = width, cap.height = height, cap.zoom = zoom;
     cap.shared_size = sizeof(struct capture_header) + 2 * (size_t)width * height * 4;
     int fd = open(CAPTURE_PATH, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
     if (fd < 0 || ftruncate(fd, (off_t)cap.shared_size) != 0 ||
@@ -95,8 +111,8 @@ void capture_command(const char *args, char *reply, size_t size)
     glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)width * height * 4, NULL, GL_STREAM_READ);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     cap.on = 1;
-    wlog("capture: %dx%d, %s, %s", width, height, cap.panels ? "panels" : "eyes",
-         cap.eye == 2 ? "both eyes" : cap.eye ? "right eye" : "left eye");
+    wlog("capture: %dx%d, %s, %s, zoom %.2f", width, height, cap.panels ? "panels" : "eyes",
+         cap.eye == 2 ? "both eyes" : cap.eye ? "right eye" : "left eye", zoom);
     snprintf(reply, size, "capturing %dx%d to %s\n", width, height, CAPTURE_PATH);
 }
 
@@ -131,17 +147,31 @@ void capture_frame(GLuint eye_buffers, GLuint panel_fbo)
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         cap.pending = 0;
     }
-    /* The source as the wearer sees it: the eye buffers are side by side, left eye first, upright; the
-     * panels' frame is mirrored left to right (lens.c), so its left eye is on the right, read backwards */
-    int half = FULL_W / 2, x0, x1;
-    if (cap.panels)
-        x0 = cap.eye == 1 ? half : FULL_W, x1 = cap.eye == 0 ? half : 0;
-    else
-        x0 = cap.eye == 1 ? half : 0, x1 = cap.eye == 0 ? half : FULL_W;
     glBindFramebuffer(GL_READ_FRAMEBUFFER, cap.panels ? panel_fbo : eyes_read);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cap.fbo);
-    /* Upside down, so that reading it back (bottom row first) gives the top row first */
-    glBlitFramebuffer(x0, 0, x1, FULL_H, 0, cap.height, cap.width, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    int half = FULL_W / 2, first = cap.eye == 1 ? 1 : 0, last = cap.eye == 0 ? 0 : 1;
+    for (int eye = first; eye <= last; eye++) {
+        /* This eye's crop, w x h around straight ahead, kept within its half */
+        float w = half / cap.zoom, h = FULL_H / cap.zoom, cx, cy, f[4];
+        if (cap.panels) {   /* around the lens centre, on the panels as the wearer sees them (y down) */
+            lens_centre_on_screen(eye, &cx, &cy);
+            cy = FULL_H - cy;
+        } else {            /* where straight ahead lands in the eye buffer (y up) */
+            lens_frustum(eye, f);
+            cx = eye * half + half * -f[0] / (f[1] - f[0]), cy = FULL_H * -f[2] / (f[3] - f[2]);
+        }
+        float lo = eye * half;
+        cx = fminf(fmaxf(cx, lo + w / 2), lo + half - w / 2);
+        cy = fminf(fmaxf(cy, h / 2), FULL_H - h / 2);
+        int sx0 = (int)(cx - w / 2), sx1 = (int)(cx + w / 2), sy0 = (int)(cy - h / 2), sy1 = (int)(cy + h / 2);
+        if (cap.panels) {   /* the panels' frame is mirrored left to right (lens.c): read it backwards */
+            int m0 = FULL_W - sx0, m1 = FULL_W - sx1;
+            sx0 = m0, sx1 = m1;
+        }
+        int dx0 = cap.eye == 2 ? eye * cap.width / 2 : 0, dx1 = cap.eye == 2 ? (eye + 1) * cap.width / 2 : cap.width;
+        /* Upside down, so that reading it back (bottom row first) gives the top row first */
+        glBlitFramebuffer(sx0, sy0, sx1, sy1, dx0, cap.height, dx1, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, cap.fbo);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, cap.pbo);
     glReadPixels(0, 0, cap.width, cap.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);

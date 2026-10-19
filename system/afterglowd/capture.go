@@ -29,8 +29,9 @@ const capturePath = "/tmp/afterglow-capture"
 
 var capture struct {
 	sync.Mutex
-	key string
-	fps int
+	key      string
+	fps      int
+	settings string // eye, view, size and rate: the same again only changes the zoom, live
 }
 
 func captureTools() []tool {
@@ -46,6 +47,9 @@ func captureTools() []tool {
 				"view":      map[string]any{"type": "string", "enum": []string{"eyes", "panels"}, "description": "eyes (default): undistorted; panels: warped for the lenses, as the displays show it"},
 				"downscale": prop("integer", "Shrink by this factor, 1 to 4 (default 2: one eye at 720x800)"),
 				"fps":       prop("integer", "Frames a second, 1 to 30 (default 25)"),
+				"zoom": prop("number", "1 is each eye's whole field (about 94° across, wide for a video); 1.6 (the "+
+					"default) about 60°, like a camera; up to 3. Calling start_capture again with only a new zoom "+
+					"changes it live: the URL and player carry on"),
 			}),
 			call: startCapture,
 		},
@@ -60,10 +64,11 @@ func captureTools() []tool {
 
 func startCapture(args json.RawMessage) ([]any, error) {
 	var a struct {
-		Eye       string `json:"eye"`
-		View      string `json:"view"`
-		Downscale int    `json:"downscale"`
-		FPS       int    `json:"fps"`
+		Eye       string  `json:"eye"`
+		View      string  `json:"view"`
+		Downscale int     `json:"downscale"`
+		FPS       int     `json:"fps"`
+		Zoom      float64 `json:"zoom"`
 	}
 	if err := decode(args, &a); err != nil {
 		return nil, err
@@ -80,16 +85,31 @@ func startCapture(args json.RawMessage) ([]any, error) {
 	if a.FPS == 0 {
 		a.FPS = 25
 	}
+	if a.Zoom == 0 {
+		a.Zoom = 1.6
+	}
 	if (a.Eye != "left" && a.Eye != "right" && a.Eye != "both") || (a.View != "eyes" && a.View != "panels") ||
-		a.Downscale < 1 || a.Downscale > 4 || a.FPS < 1 || a.FPS > 30 {
-		return nil, errors.New("eye left, right or both; view eyes or panels; downscale 1 to 4; fps 1 to 30")
+		a.Downscale < 1 || a.Downscale > 4 || a.FPS < 1 || a.FPS > 30 || a.Zoom < 1 || a.Zoom > 3 {
+		return nil, errors.New("eye left, right or both; view eyes or panels; downscale 1 to 4; fps 1 to 30; zoom 1 to 3")
+	}
+	settings := fmt.Sprintf("%s %s %d %d", a.Eye, a.View, a.Downscale, a.FPS)
+	capture.Lock()
+	running, same, current := capture.key != "", capture.settings == settings, capture.key
+	capture.Unlock()
+	if running && same { // only the zoom: change it while the stream runs
+		if reply, err := worldCommand(fmt.Sprintf("capture zoom %.2f", a.Zoom), 5*time.Second); err == nil &&
+			!strings.HasPrefix(reply, "error") {
+			return []any{text(fmt.Sprintf("zoom now %.2f; the stream carries on at http://afterglow.local:7070/capture/%s.mjpg",
+				a.Zoom, current))}, nil
+		}
 	}
 	width, height := 1440/a.Downscale, 1600/a.Downscale
 	if a.Eye == "both" {
 		width *= 2
 	}
 	width, height = width&^1, height&^1 // even, as video wants
-	reply, err := worldCommand(fmt.Sprintf("capture start %s %s %d %d", a.View, a.Eye, width, height), 5*time.Second)
+	reply, err := worldCommand(fmt.Sprintf("capture start %s %s %d %d %.2f", a.View, a.Eye, width, height, a.Zoom),
+		5*time.Second)
 	if err != nil {
 		return nil, errors.New("the world isn't running: start_world first")
 	}
@@ -99,14 +119,14 @@ func startCapture(args json.RawMessage) ([]any, error) {
 	key := make([]byte, 16)
 	rand.Read(key)
 	capture.Lock()
-	capture.key, capture.fps = hex.EncodeToString(key), a.FPS
+	capture.key, capture.fps, capture.settings = hex.EncodeToString(key), a.FPS, settings
 	url := "http://afterglow.local:7070/capture/" + capture.key + ".mjpg"
 	capture.Unlock()
 	klog("capture started: %dx%d at %d fps", width, height, a.FPS)
-	return []any{text(fmt.Sprintf("Streaming %s (%s) at %dx%d, %d fps: %s\n"+
+	return []any{text(fmt.Sprintf("Streaming %s (%s, zoom %.2f) at %dx%d, %d fps: %s\n"+
 		"Watch it on the computer: /Applications/VLC.app/Contents/MacOS/VLC --network-caching=300 '%s' &\n"+
 		"(or open -a VLC '%s'; to record a file: ffmpeg -i '%s' -c:v libx264 -pix_fmt yuv420p capture.mp4)\n"+
-		"The URL works until end_capture.", a.Eye, a.View, width, height, a.FPS, url, url, url, url))}, nil
+		"The URL works until end_capture.", a.Eye, a.View, a.Zoom, width, height, a.FPS, url, url, url, url))}, nil
 }
 
 func endCapture(args json.RawMessage) ([]any, error) {
