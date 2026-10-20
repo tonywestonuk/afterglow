@@ -6,20 +6,20 @@ afterglow is built in phases. Each phase ends with something that works and can 
 
 ```
  Mac / PC                                   Quest 1 (afterglow)
-┌────────────────────┐   USB or Wi-Fi   ┌──────────────────────────────┐
-│ Claude Code         │ ◄──────────────► │ afterglowd (MCP server)       │
-│ (or any MCP client) │   MCP over HTTP  │  ├─ apps: create/run/stop     │
-└────────────────────┘                  │  ├─ files (app folders)       │
-          │                              │  ├─ screenshot → image        │
-          ▼                              │  ├─ logs, sensors, status     │
-   Claude (cloud)                        │  └─ shell (opt-in, approved)  │
-                                         ├──────────────────────────────┤
-                                         │ App runtime: setup()/loop()   │
-                                         │ C++ and JavaScript (QuickJS)  │
-                                         ├──────────────────────────────┤
-                                         │ Linux (start: Meta's 4.4      │
-                                         │ kernel; later: mainline)      │
-                                         └──────────────────────────────┘
+┌─────────────────────┐   Wi-Fi (USB to     ┌────────────────────────────────┐
+│ Claude Code         │   pair)             │ afterglowd (MCP server)        │
+│ (or any MCP client) │ ◄─────────────────► │  ├─ extensions: compile, load  │
+└─────────────────────┘   MCP over HTTP     │  ├─ screenshot, video capture  │
+          │                                 │  ├─ textures (generate, fetch) │
+          ▼                                 │  └─ shell, files, logs         │
+   Claude (cloud)                           ├────────────────────────────────┤
+                                            │ The world: one running scene;  │
+                                            │ extensions (C → WebAssembly)   │
+                                            │ swapped in while it runs       │
+                                            ├────────────────────────────────┤
+                                            │ Linux (start: Meta's 4.4       │
+                                            │ kernel; later: mainline)       │
+                                            └────────────────────────────────┘
 ```
 
 Design principles:
@@ -94,6 +94,11 @@ grass extension is compiled and linked in without the world stopping.
 - [ ] Instancing (many copies of a mesh in one draw), and a raised GPU clock while the world runs
 - [ ] Ahead-of-time compiled extensions (`wamrc`) for heavy per-frame code
 - [ ] Voice: "make the floor grass" said in the headset
+- [ ] Places: each one saved by name (its extensions and their versions, a picture), changes made
+      while you're in it kept, and Claude tools to start, list and go back to them
+- [ ] A console the wearer can call up from inside any place (as the holodeck has its arch): go to a
+      saved place, go home, face forward, see what Claude is doing, switch off. afterglow's own look
+      (brand/), chosen with the head buttons and gaze until controllers work
 
 ## Phase 3 — Claude-native
 

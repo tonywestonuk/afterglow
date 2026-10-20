@@ -59,6 +59,9 @@ sed -n '/^This software is available under 2 licenses/,$p' "$STB/stb_truetype.h"
 install -m 0755 /work/system/scripts/*.sh "$ROOT/afterglow/"
 install -m 0755 "$OUT"/tools/* "$ROOT/bin/"
 install -m 0755 "$AFTERGLOWD" "$ROOT/bin/"
+mkdir -p "$ROOT/usr/share/licenses/go" "$ROOT/usr/share/licenses/zstd"   # afterglowd is Go; /init has zstd's decoder
+cp /work/out/afterglowd/LICENSE.go "$ROOT/usr/share/licenses/go/LICENSE"
+cp /opt/zstd/LICENSE "$ROOT/usr/share/licenses/zstd/"
 # The world (built with the Android NDK) and the header its extensions are written against
 install -m 0755 "$WORLD" "$ROOT/afterglow/world"
 mkdir -p "$ROOT/afterglow/sdk"
