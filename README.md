@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/afterglow-mark.svg">
+    <img src="brand/afterglow-mark-light.svg" width="320"
+         alt="The afterglow mark: a sun setting into the sea, with rings of light rising around it">
+  </picture>
+</p>
+
 # afterglow
 
 **Put on the headset and say where you want to be.**
